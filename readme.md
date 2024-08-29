@@ -38,7 +38,7 @@ First, ensure you have Python installed. Then, install the required dependencies
 
 ```bash
 pip install -r requirements.txt
-```
+
 
 ### Running the Tool
 
@@ -49,7 +49,7 @@ from duplicatedcontentchecker import ContentDuplicateChecker
 
 checker = ContentDuplicateChecker(base_url="https://yourdomain.com", max_depth=4)
 checker.run()
-```
+
 
 ### Interpreting the Results
 
