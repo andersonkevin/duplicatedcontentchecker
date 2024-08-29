@@ -90,5 +90,3 @@ The **Content Duplicate Checker** is a valuable tool for maintaining the SEO hea
 
 This project is licensed under the MIT License. See the LICENSE file for more details.
 ```
-
-This should now be properly formatted for Markdown, and you can use it directly as your `README.md` file. Let me know if you need any further adjustments!
