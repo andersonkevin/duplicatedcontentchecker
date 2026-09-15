@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "duplicatedcontentchecker"
+version = "2.0.0"
+description = "Crawl a website and report exact and near-duplicate pages for SEO audits."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Kevin Anderson" }]
+requires-python = ">=3.10"
+keywords = ["seo", "duplicate-content", "crawler", "tf-idf", "cosine-similarity"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "scikit-learn>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+dupcheck = "duplicatedcontentchecker.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/andersonkevin/duplicatedcontentchecker"
+Issues = "https://github.com/andersonkevin/duplicatedcontentchecker/issues"
+Changelog = "https://github.com/andersonkevin/duplicatedcontentchecker/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["duplicatedcontentchecker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
