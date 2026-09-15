@@ -57,3 +57,12 @@ def test_extract_links_resolves_and_filters():
         "https://example.com/abs",
         "https://other.org/x",
     ]
+
+
+def test_canonical_with_unsafe_scheme_is_ignored():
+    html = (
+        '<html><head><link rel="canonical" href="javascript:alert(1)"></head><body><main><p>x</p></main></body></html>'
+    )
+    assert extract_page(html, "https://e.com/x").canonical is None
+    html = '<html><head><link rel="canonical" href="data:text/html,hi"></head><body><main><p>x</p></main></body></html>'
+    assert extract_page(html, "https://e.com/x").canonical is None

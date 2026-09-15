@@ -370,7 +370,11 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       return (b.similarity || 0) - (a.similarity || 0);
     });
   }
-  function link(u) { return u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u)}</a>` : "<span class=\"sub\">—</span>"; }
+  // Crawled data is untrusted: only http(s) URLs become links, everything else is shown as text.
+  function link(u) {
+    if (!u) return "<span class=\"sub\">—</span>";
+    return /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u);
+  }
   function renderActions() {
     const rows = filteredActions(), tb = $("#actions tbody");
     tb.innerHTML = rows.map((a, i) => {
