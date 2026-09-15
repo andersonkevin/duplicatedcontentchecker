@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-09-15
+
+### Changed
+- HTTPS only. Start URLs must use `https://` and plain-http links found on the
+  site are never followed; there is no opt-out. `CrawlStats` gains `skipped_http`.
+- README security section explains why a local tool must treat crawled data as
+  untrusted (XSS) and how the localhost-service risk is handled.
+
 ## [2.1.0] - 2026-09-15
 
 ### Added

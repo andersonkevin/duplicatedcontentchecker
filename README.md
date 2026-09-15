@@ -95,6 +95,25 @@ command instead.
   LAN. Start it with `--allow-private-hosts` if you audit an intranet site.
 - To revoke the token, delete `~/.dupcheck/token`; a new one is generated on
   the next start and older reports stop being able to command the engine.
+- HTTPS only: start URLs must be `https://`, and plain-http links found on
+  the site are never followed. Crawl traffic is never sent unencrypted or
+  exposed to tampering in transit. There is no opt-out; a site without TLS
+  cannot be audited with this tool.
+
+### Why a local tool still has to be careful
+
+"Local" protects the program, not the data it processes. Everything the
+crawler brings back (titles, URLs, canonical tags) was written by someone
+else, and a hostile site can plant content designed to run inside whatever
+displays it. That family of attack is cross-site scripting (XSS). The
+dashboard therefore treats crawled data as untrusted: every value is escaped
+before it is placed in the page, only `http(s)` URLs are rendered as links
+(a canonical of `javascript:` or `data:` is shown as plain text and ignored by
+the extractor), and links open with `rel="noopener noreferrer"`. The
+localhost-service risk is a different family (any website you visit can send
+requests to `127.0.0.1`); the per-machine token and the private-host block
+close that door. The rule behind both: treat all input as untrusted, even
+when the program runs on your own machine.
 - No accounts, no telemetry, no cloud. Nothing is uploaded anywhere; the only
   outbound traffic is the crawl of the site you asked for.
 
@@ -138,7 +157,7 @@ pip install -e ".[dev]"
 ## Command line
 
 ```text
-dupcheck URL [options]
+dupcheck HTTPS_URL [options]
 
 crawl scope:
   -d, --max-depth N        link hops to follow from the start URL (default 2)

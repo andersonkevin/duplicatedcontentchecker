@@ -121,7 +121,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
       <button class="btn" type="button" id="retryEngine" hidden style="margin-left:8px">Retry</button>
     </div>
     <form class="form" id="scanForm" autocomplete="off">
-      <label class="full">Start URL <input type="url" name="url" required placeholder="https://example.com"></label>
+      <label class="full">Start URL <input type="url" name="url" required placeholder="https://example.com" pattern="https://.*" title="Only https:// sites are scanned"></label>
       <label>Max depth <input type="number" name="max_depth" value="2" min="0" max="20"></label>
       <label>Max pages <input type="number" name="max_pages" value="200" min="1" max="20000"></label>
       <label>Similarity threshold <input type="number" name="threshold" value="0.8" min="0.05" max="1" step="0.01"></label>

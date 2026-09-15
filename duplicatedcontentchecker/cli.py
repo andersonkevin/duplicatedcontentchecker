@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
         "and launch scans from the browser.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("url", help="Absolute URL to start crawling from, e.g. https://example.com")
+    p.add_argument("url", help="Absolute https URL to start crawling from, e.g. https://example.com")
     p.add_argument("-V", "--version", action="version", version=f"%(prog)s {__version__}")
 
     scope = p.add_argument_group("crawl scope")

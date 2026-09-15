@@ -111,3 +111,25 @@ def test_trailing_slash_variants_are_reported_not_merged():
     }
     pages = Crawler(CrawlConfig("https://example.com", max_depth=1), FakeFetcher(site)).crawl()
     assert sorted(p.url for p in pages) == sorted(site)
+
+
+def test_http_is_refused():
+    import pytest
+
+    with pytest.raises(ValueError, match="https"):
+        CrawlConfig("http://example.com")
+    with pytest.raises(ValueError, match="https"):
+        CrawlConfig("ftp://example.com")
+
+
+def test_http_links_are_never_followed():
+    site = {
+        "https://example.com/": page(
+            "Home", LOREM_A, links=["http://example.com/legacy", "/secure"], with_chrome=False
+        ),
+        "https://example.com/secure": page("Secure", LOREM_B, with_chrome=False),
+        "http://example.com/legacy": page("Legacy", LOREM_B + " legacy words.", with_chrome=False),
+    }
+    crawler = Crawler(CrawlConfig("https://example.com", max_depth=1), FakeFetcher(site))
+    assert sorted(p.url for p in crawler.crawl()) == ["https://example.com/", "https://example.com/secure"]
+    assert crawler.stats.skipped_http == 1

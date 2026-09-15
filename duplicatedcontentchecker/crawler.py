@@ -55,6 +55,9 @@ class Crawler:
         cfg = self.config
         if not is_internal(url, cfg.base_url, include_subdomains=cfg.include_subdomains):
             return False
+        if not url.lower().startswith("https://"):
+            self.stats.skipped_http += 1  # plain-http links are never followed
+            return False
         if not looks_like_html(url):
             self.stats.skipped_non_html += 1
             return False
