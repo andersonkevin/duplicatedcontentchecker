@@ -27,6 +27,7 @@ from .engine_token import get_or_create_token
 from .fetcher import Fetcher
 from .models import DEFAULT_USER_AGENT, CrawlConfig, Report
 from .report import csv_text, csv_text_from_pairs, render_html, to_dict, write_csv, write_html, write_json
+from .urlutils import is_private_host
 
 log = logging.getLogger(__name__)
 
@@ -94,11 +95,20 @@ def config_from_payload(payload: dict[str, Any]) -> CrawlConfig:
 class ScanRunner:
     """Owns one scan at a time and exposes its status."""
 
-    def __init__(self, fetcher_factory=None, output_dir: str | Path | None = None, token: str | None = None) -> None:
+    def __init__(
+        self,
+        fetcher_factory=None,
+        output_dir: str | Path | None = None,
+        token: str | None = None,
+        allow_private_hosts: bool = False,
+    ) -> None:
         self.s = ScanState()
         self._fetcher_factory = fetcher_factory  # tests inject a FakeFetcher
         self.output_dir = Path(output_dir) if output_dir else None
         self.token = token or get_or_create_token()
+        # Operator-only switch (command line), never settable through the API:
+        # a leaked token must not turn the engine into a scanner for the LAN.
+        self.allow_private_hosts = allow_private_hosts
 
     # -- saved reports ----------------------------------------------------
 
@@ -186,6 +196,12 @@ class ScanRunner:
             if self.s.state == "running":
                 raise RuntimeError("A scan is already running")
             config = config_from_payload(payload)  # raises ValueError on bad input
+            host = urlsplit(config.base_url).hostname or ""
+            if not self.allow_private_hosts and is_private_host(host):
+                raise ValueError(
+                    f"{host!r} is a local or private host; the engine only scans public sites unless started "
+                    "with --allow-private-hosts"
+                )
             self.s = ScanState(state="running", config=config, phase="starting")
         thread = threading.Thread(target=self._run, name="dupcheck-scan", daemon=True)
         thread.start()
