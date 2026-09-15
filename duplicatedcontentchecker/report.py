@@ -129,13 +129,25 @@ def _json_for_html(data: dict) -> str:
     )
 
 
-def render_html(data: dict | None, *, live: bool = False, title: str = "Duplicate content report") -> str:
+DEFAULT_ENGINE_URL = "http://127.0.0.1:8765"
+
+
+def render_html(
+    data: dict | None,
+    *,
+    live: bool = False,
+    title: str = "Duplicate content report",
+    token: str | None = None,
+    engine_url: str = DEFAULT_ENGINE_URL,
+) -> str:
     """Render the dashboard template.
 
     ``data`` is the dict from :func:`to_dict` (embedded for the static report)
     or ``None`` in live mode, where the page fetches it from the local server.
     The template is valid HTML on its own; rendering only fills in the title,
-    the mode/version meta tags and the JSON data block.
+    the meta tags (mode, version, engine URL, token) and the JSON data block.
+    ``token`` lets a report opened from disk call the local engine; omit it for
+    a report you will share outside this machine.
     """
     template = resources.files("duplicatedcontentchecker.templates").joinpath("dashboard.html").read_text("utf-8")
     payload = _json_for_html(data) if data is not None else "null"
@@ -147,6 +159,14 @@ def render_html(data: dict | None, *, live: bool = False, title: str = "Duplicat
         ),
         ('<meta name="dupcheck-version" content="">', f'<meta name="dupcheck-version" content="{__version__}">'),
         (
+            '<meta name="dupcheck-engine" content="">',
+            f'<meta name="dupcheck-engine" content="{html.escape(engine_url)}">',
+        ),
+        (
+            '<meta name="dupcheck-token" content="">',
+            f'<meta name="dupcheck-token" content="{html.escape(token or "")}">',
+        ),
+        (
             '<script id="report-data" type="application/json">null</script>',
             f'<script id="report-data" type="application/json">{payload}</script>',
         ),
@@ -157,9 +177,10 @@ def render_html(data: dict | None, *, live: bool = False, title: str = "Duplicat
     return template
 
 
-def write_html(report: Report, path: str | Path) -> Path:
+def write_html(report: Report, path: str | Path, *, token: str | None = None) -> Path:
     path = Path(path)
-    path.write_text(render_html(to_dict(report), title=f"Duplicate content · {report.base_url}"), encoding="utf-8")
+    html_text = render_html(to_dict(report), title=f"Duplicate content · {report.base_url}", token=token)
+    path.write_text(html_text, encoding="utf-8")
     return path
 
 

@@ -67,10 +67,30 @@ dupcheck https://example.com --max-depth 3 --html report.html
 
 ## The dashboard
 
-`dupcheck` (or `dupcheck serve`) hosts the dashboard locally with a form to
-launch scans and saves each result. `--html report.html` writes the same
-dashboard as a single self-contained snapshot you can open anywhere or send to
-a client; the snapshot cannot start a crawl by itself.
+`dupcheck` (or `dupcheck serve`) starts the engine on your machine and opens
+the dashboard. Every saved HTML report is the same dashboard: open the file
+and, while the engine is running, it connects to it and you can run new scans
+from that file, with progress, results and saving, exactly like the live page.
+If the engine is not running, the page says so and builds the equivalent
+command instead.
+
+### How the local engine works and what it exposes
+
+- The engine is the `dupcheck` process on your computer. It listens only on
+  `127.0.0.1`, so nothing on your network or the internet can reach it. This is
+  the same model Jupyter uses.
+- Browsers let any website you visit send requests to `127.0.0.1`. To stop a
+  malicious page from driving your crawler, every API call must carry a random
+  token that lives in `~/.dupcheck/token` (owner-only permissions, created on
+  first run). The engine embeds that token in the dashboard it serves and in
+  the HTML reports it writes on this machine, and nowhere else.
+- A report that carries your token is harmless elsewhere: the token only works
+  against an engine on the same computer. To share a report without it, use
+  `--portable`; the file then shows results but cannot launch scans.
+- No accounts, no telemetry, no cloud. Nothing is uploaded anywhere; the only
+  outbound traffic is the crawl of the site you asked for.
+
+### What is in it
 
 - **At a glance**: high-priority count, pages crawled, exact and near pairs,
   clusters, thin pages; a similarity histogram and a pages-by-state chart.
@@ -84,8 +104,8 @@ a client; the snapshot cannot start a crawl by itself.
   threshold, min words, delay, include/exclude patterns, sitemap seeding and
   more; watch progress and the crawl log; cancel; download results. Finished
   scans are saved automatically to the output directory and listed under
-  **Previous scans**. The server binds to 127.0.0.1 and has no authentication,
-  so keep it local.
+  **Previous scans**. The engine binds to 127.0.0.1 and every API call needs the
+  per-machine token described above.
 
 It respects `robots.txt`, sends a real User-Agent, times out, retries transient
 errors, skips non-HTML responses, and can wait between requests.
@@ -137,6 +157,7 @@ output:
   -o, --output CSV         CSV path (default duplicate_report.csv)
   --json PATH              also write a JSON report
   --html PATH              also write the interactive HTML dashboard
+  --portable               write the HTML without the local engine token (for sharing)
   --no-summary             do not print the Markdown summary
   --fail-on-duplicates     exit 1 if any pair is found (useful in CI)
   -q / -v                  quieter / more verbose logging
