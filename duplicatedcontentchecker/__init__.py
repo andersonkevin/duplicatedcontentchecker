@@ -1,6 +1,6 @@
 """Detect exact and near-duplicate content across the pages of a website."""
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 from .checker import ContentDuplicateChecker  # noqa: E402
 from .models import CrawlConfig, CrawlStats, DuplicatePair, Page, Report  # noqa: E402
