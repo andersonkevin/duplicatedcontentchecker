@@ -31,7 +31,9 @@ All notable changes to this project are documented here. The format follows
 - Engine token: API calls require a per-machine secret stored in
   `~/.dupcheck/token`; the engine embeds it in the pages it serves and in the
   reports written locally. Prevents other websites from driving the crawler.
-  `--portable` writes a report without the token for sharing.
+  `--portable` writes a report without the token for sharing. The engine refuses
+  localhost and private-network targets unless started with
+  `--allow-private-hosts`. `dupcheck-reports/` is git-ignored.
 - Crawler accepts a `should_stop` callback and exposes `queued_count` for progress.
 
 ## [2.0.0] - 2026-09-15

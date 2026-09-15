@@ -272,3 +272,31 @@ def test_get_or_create_token_is_stable(tmp_path, monkeypatch):
     first = get_or_create_token()
     assert len(first) == 48 and token_path().read_text().strip() == first
     assert get_or_create_token() == first
+
+
+def test_engine_refuses_private_hosts_unless_allowed(simple_site):
+    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN)
+    for url in (
+        "http://localhost:8000/",
+        "http://127.0.0.1/",
+        "http://192.168.1.1/admin",
+        "http://10.0.0.5/",
+        "http://[::1]/",
+        "http://router.local/",
+    ):
+        with pytest.raises(ValueError, match="private host"):
+            runner.start({"url": url})
+        assert runner.s.state == "idle"
+    permissive = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN, allow_private_hosts=True)
+    permissive.start({"url": "http://192.168.1.1/"})
+    assert permissive.s.state in ("running", "done")
+
+
+def test_is_private_host():
+    from duplicatedcontentchecker.urlutils import is_private_host
+
+    assert is_private_host("localhost") and is_private_host("127.0.0.1") and is_private_host("::1")
+    assert is_private_host("10.1.2.3") and is_private_host("172.16.0.9") and is_private_host("192.168.0.1")
+    assert is_private_host("169.254.1.1") and is_private_host("printer.local") and is_private_host("")
+    assert not is_private_host("8.8.8.8") and not is_private_host("2606:4700::1111")
+    assert not is_private_host("this-name-does-not-resolve.invalid")

@@ -86,7 +86,15 @@ command instead.
   the HTML reports it writes on this machine, and nowhere else.
 - A report that carries your token is harmless elsewhere: the token only works
   against an engine on the same computer. To share a report without it, use
-  `--portable`; the file then shows results but cannot launch scans.
+  `--portable`; the file then shows results but cannot launch scans. Saved
+  reports live in `dupcheck-reports/`, which is git-ignored, so they are not
+  committed by accident.
+- Defense in depth: the engine refuses to scan localhost or private networks
+  (10/8, 172.16/12, 192.168/16, link-local, `.local` names, and anything that
+  resolves there). Even a leaked token cannot turn it into a scanner for your
+  LAN. Start it with `--allow-private-hosts` if you audit an intranet site.
+- To revoke the token, delete `~/.dupcheck/token`; a new one is generated on
+  the next start and older reports stop being able to command the engine.
 - No accounts, no telemetry, no cloud. Nothing is uploaded anywhere; the only
   outbound traffic is the crawl of the site you asked for.
 

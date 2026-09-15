@@ -31,6 +31,11 @@ def build_serve_parser() -> argparse.ArgumentParser:
         help="Where every finished scan is saved as JSON, CSV and HTML; previous scans are listed in the dashboard",
     )
     p.add_argument("--load", metavar="REPORT.json", help="Open this saved JSON report when the dashboard starts")
+    p.add_argument(
+        "--allow-private-hosts",
+        action="store_true",
+        help="Let dashboard scans target localhost or private networks (off by default as a safety measure)",
+    )
     p.add_argument("-q", "--quiet", action="store_true", help="Only log warnings and errors")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     return p
@@ -138,7 +143,7 @@ def serve_main(argv: list[str], *, serve_fn=None) -> int:
         handler.setLevel(level)  # the scan thread raises the package logger to INFO for the dashboard
     from .server import ScanRunner, serve  # local import keeps plain runs light
 
-    runner = ScanRunner(output_dir=args.output_dir)
+    runner = ScanRunner(output_dir=args.output_dir, allow_private_hosts=args.allow_private_hosts)
     if args.load:
         try:
             runner.load(args.load)

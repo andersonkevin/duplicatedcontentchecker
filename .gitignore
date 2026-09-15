@@ -40,6 +40,12 @@ htmlcov/
 .idea/
 .DS_Store
 
-# Generated reports
+# Generated reports (saved HTML reports embed this machine's engine token; never commit them)
 duplicate_report.csv
+duplicate_report.json
+duplicate_report.html
+dupcheck-reports/
 *.report.json
+
+# Assistant/tool state
+.claude/
