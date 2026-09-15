@@ -30,8 +30,11 @@ class CrawlConfig:
     strip_query: bool = False
 
     def __post_init__(self) -> None:
-        if not self.base_url or "://" not in self.base_url:
-            raise ValueError("base_url must be an absolute http(s) URL")
+        scheme = self.base_url.split("://", 1)[0].lower() if "://" in (self.base_url or "") else ""
+        if scheme == "http":
+            raise ValueError("base_url must use https; plain-http sites are not scanned")
+        if scheme != "https":
+            raise ValueError("base_url must be an absolute https URL")
         if self.max_depth < 0:
             raise ValueError("max_depth must be >= 0")
         if self.max_pages < 1:
@@ -108,6 +111,7 @@ class CrawlStats:
     skipped_robots: int = 0
     skipped_pattern: int = 0
     skipped_non_html: int = 0
+    skipped_http: int = 0
     failed: int = 0
     duplicates_of_visited: int = 0
     seeded_from_sitemap: int = 0

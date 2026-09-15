@@ -48,6 +48,8 @@ def test_config_validation():
     with pytest.raises(ValueError):
         CrawlConfig("example.com")
     with pytest.raises(ValueError):
+        CrawlConfig("http://example.com")
+    with pytest.raises(ValueError):
         CrawlConfig("https://example.com", threshold=1.5)
     with pytest.raises(ValueError):
         CrawlConfig("https://example.com", max_pages=0)
