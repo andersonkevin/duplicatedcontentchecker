@@ -10,7 +10,13 @@ copies and near-duplicates so you can consolidate, canonicalize or rewrite them.
 
 ```bash
 pip install git+https://github.com/andersonkevin/duplicatedcontentchecker.git
-dupcheck https://example.com --max-depth 3 --json report.json
+dupcheck https://example.com --max-depth 3 --html report.html
+```
+
+Or open the interactive dashboard and run scans from the browser:
+
+```bash
+dupcheck serve
 ```
 
 ```text
@@ -45,10 +51,32 @@ dupcheck https://example.com --max-depth 3 --json report.json
    - **Exact**: SHA-256 of the whitespace- and case-folded text.
    - **Near**: TF-IDF (word unigrams + bigrams, sublinear TF) cosine similarity
      at or above `--threshold` (default 0.8).
-5. **Reports** a CSV, an optional JSON file with every page and crawl statistic,
-   and a Markdown summary on stdout. Pairs are annotated when one page already
-   canonicalizes to the other or is marked `noindex`, so you can tell real
-   problems from ones you have already handled.
+5. **Recommends an action for every duplicate page.** Pages are grouped into
+   duplicate clusters, one primary URL is picked per cluster (canonical target,
+   then shallowest, shortest, longest content), and each other member gets a
+   concrete to-do: 301 redirect, consolidate, differentiate, or verify an
+   existing canonical/noindex. Thin pages get their own action.
+6. **Reports** a CSV, a JSON file with every page, pair, action and crawl
+   statistic, a Markdown summary on stdout, and an interactive HTML dashboard.
+
+## The dashboard
+
+`--html report.html` writes a single self-contained file you can open anywhere
+or send to a client. `dupcheck serve` hosts the same dashboard locally with a
+form to launch new scans.
+
+- **At a glance**: high-priority count, pages crawled, exact and near pairs,
+  clusters, thin pages; a similarity histogram and a pages-by-state chart.
+- **Action plan**: filter by priority, action type, minimum similarity or free
+  text; click a histogram bar to jump to that range; sort by any column; tick
+  actions off as you go (kept in your browser); expand a row for the reasoning.
+- **Exports**: CSV, JSON, and a Markdown checklist copied to the clipboard.
+- **Clusters and pages**: every duplicate group with its primary, and the full
+  crawled page list with word counts, canonical targets and noindex flags.
+- **Live mode** (`serve`): start URL, depth, page cap, threshold, min words,
+  delay, include/exclude patterns, sitemap seeding and more; watch progress and
+  the crawl log; cancel; download results. The server binds to 127.0.0.1 and has
+  no authentication, so keep it local.
 
 It respects `robots.txt`, sends a real User-Agent, times out, retries transient
 errors, skips non-HTML responses, and can wait between requests.
@@ -89,16 +117,17 @@ network:
   --timeout SECONDS        per-request timeout (default 15)
   --retries N              retries for 429/5xx (default 2)
   --user-agent UA          User-Agent header
-  --ignore-robots          do not honour robots.txt (only on sites you own)
+  --ignore-robots          do not honor robots.txt (only on sites you own)
 
 analysis:
   -t, --threshold FLOAT    near-duplicate cosine threshold (default 0.8)
   --min-words N            pages shorter than this are listed as thin, not compared (default 50)
-  --full-page              compare the whole page including nav/footer (v1 behaviour)
+  --full-page              compare the whole page including nav/footer (v1 behavior)
 
 output:
   -o, --output CSV         CSV path (default duplicate_report.csv)
   --json PATH              also write a JSON report
+  --html PATH              also write the interactive HTML dashboard
   --no-summary             do not print the Markdown summary
   --fail-on-duplicates     exit 1 if any pair is found (useful in CI)
   -q / -v                  quieter / more verbose logging
@@ -115,6 +144,10 @@ dupcheck https://example.com --sitemap --threshold 0.9 --max-pages 2000
 
 # Skip tag and pagination archives
 dupcheck https://example.com --exclude "/tag/" --exclude "/page/\d+"
+
+# Interactive dashboard on http://127.0.0.1:8765 (opens your browser)
+dupcheck serve
+dupcheck serve --port 9000 --no-open
 ```
 
 ## Python API
@@ -144,7 +177,18 @@ checker.run()
 ## Reading the report
 
 **CSV columns:** `URL_1`, `URL_2`, `Similarity`, `Type`, `Note`. The first three
-match v1, so existing spreadsheets keep working.
+match v1, so existing spreadsheets keep working. The JSON report adds `actions`
+(one per duplicate page, with `priority`, `code`, `keep_url`, `change_url` and
+`why`) and `clusters` (each group with its `primary` and `members`).
+
+| Action | Priority | When |
+| --- | --- | --- |
+| `redirect` | high | Main content identical: 301 the duplicate to the primary, or canonicalize if both must stay |
+| `consolidate` | high | ≥ 95% similar: merge unique bits into the primary, then redirect or canonicalize |
+| `differentiate` | medium | Above threshold but below 95%: give the page a distinct purpose, or canonicalize variants |
+| `verify-canonical` | low | The page already canonicalizes to the primary: confirm it is not indexed separately |
+| `verify-noindex` | low | The page is noindex: consider a redirect so links still count |
+| `thin` | low | Under `--min-words`: expand, merge, or noindex |
 
 | Similarity | Meaning | Typical action |
 | --- | --- | --- |
