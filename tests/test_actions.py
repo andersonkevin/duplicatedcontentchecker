@@ -1,4 +1,4 @@
-from duplicatedcontentchecker import ContentDuplicateChecker, CrawlConfig
+from duplicatedcontentchecker import ContentDuplicateChecker, CrawlConfig, __version__
 from duplicatedcontentchecker.actions import build_clusters, recommend
 from duplicatedcontentchecker.extractor import extract_page
 from duplicatedcontentchecker.models import CrawlStats, DuplicatePair, Report
@@ -124,6 +124,8 @@ def test_actions_in_json_and_html(simple_site, tmp_path):
     html = out.read_text(encoding="utf-8")
     assert html.startswith("<!doctype html>")
     assert '<script id="report-data" type="application/json">' in html
-    assert "__DATA__" not in html and "__LIVE__" not in html and "const LIVE = false" in html
+    assert "<title>Duplicate content · https://example.com</title>" in html
+    assert '<meta name="dupcheck-mode" content="static">' in html
+    assert f'<meta name="dupcheck-version" content="{__version__}">' in html
     assert "\\u003c" in html or "<" not in data["base_url"]  # embedded JSON never contains a raw "<"
     assert "https://example.com/blog/post-1-copy" in html
