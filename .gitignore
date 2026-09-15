@@ -27,3 +27,19 @@ env/
 venv/
 .env/
 .venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Generated reports
+duplicate_report.csv
+*.report.json

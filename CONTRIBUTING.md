@@ -1,20 +1,48 @@
-# Contributing to Content Duplicate Checker
+# Contributing
 
-Thank you for considering contributing to the Content Duplicate Checker project! Contributions are welcome, whether you're fixing bugs, adding new features, improving documentation, or any other helpful contribution.
+Thanks for helping improve the Content Duplicate Checker. Bug reports, feature
+requests, documentation fixes and pull requests are all welcome.
 
-## How to Contribute
+## Reporting issues
 
-### 1. Reporting Issues
+Open an issue with the command you ran, the site type (static, WordPress, SPA…),
+the relevant part of the output or traceback, and your Python version. Do not
+paste private URLs or reports you cannot share.
 
-If you find a bug or have a feature request, please create an issue in the GitHub repository. Be sure to provide as much detail as possible, including steps to reproduce the bug and any relevant screenshots or logs.
-
-### 2. Fork the Repository
-
-Before working on an issue, fork the repository to your GitHub account. This will allow you to make your changes in a separate branch without affecting the main codebase.
-
-### 3. Create a Branch
-
-Create a new branch for your changes. Use a descriptive name that reflects the nature of your contribution, such as `fix-duplicate-detection` or `add-logging`.
+## Development setup
 
 ```bash
-git checkout -b duplicatedcontentcheker
+git clone https://github.com/andersonkevin/duplicatedcontentchecker.git
+cd duplicatedcontentchecker
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+pytest
+ruff check . && ruff format --check .
+```
+
+Tests must not touch the network. Use the `FakeFetcher` and `page()` helpers in
+`tests/conftest.py` to build an in-memory site.
+
+## Making changes
+
+1. Create a branch with a descriptive name, for example `fix-canonical-detection`.
+2. Keep the public API stable: `ContentDuplicateChecker(base_url, max_depth).run()`
+   and the first three CSV columns are relied on by existing users.
+3. Add or update tests for the behaviour you change.
+4. Run `pytest` and `ruff` before opening the pull request.
+5. Add a line under **Unreleased** in `CHANGELOG.md`.
+
+## Code layout
+
+| Module | Responsibility |
+| --- | --- |
+| `models.py` | Dataclasses: `CrawlConfig`, `Page`, `DuplicatePair`, `Report` |
+| `urlutils.py` | URL normalization and scope checks |
+| `fetcher.py` | HTTP session, robots.txt, retries, throttling |
+| `extractor.py` | HTML → main text, links, canonical, noindex |
+| `sitemap.py` | Sitemap discovery and parsing |
+| `crawler.py` | Breadth-first crawl loop |
+| `analyzer.py` | Exact and TF-IDF near-duplicate detection |
+| `report.py` | CSV, JSON and Markdown output |
+| `checker.py` | Facade and v1-compatible API |
+| `cli.py` | `dupcheck` command |
