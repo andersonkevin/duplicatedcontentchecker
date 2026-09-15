@@ -55,7 +55,7 @@ def test_fetch_skips_non_html_and_errors():
         assert f.fetch("https://example.com/") is None
 
 
-def test_robots_disallow_is_honoured():
+def test_robots_disallow_is_honored():
     f = HttpFetcher(respect_robots=True, user_agent="TestBot/1.0")
     robots = _Resp(
         content_type="text/plain", body=b"User-agent: *\nDisallow: /private\nSitemap: https://example.com/sm.xml\n"

@@ -10,13 +10,43 @@ from pathlib import Path
 from . import __version__
 from .checker import ContentDuplicateChecker
 from .models import DEFAULT_USER_AGENT, CrawlConfig
-from .report import markdown_summary, write_csv, write_json
+from .report import markdown_summary, write_csv, write_html, write_json
+
+
+def build_serve_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="dupcheck serve",
+        description="Start a local dashboard where you can run scans with custom parameters.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument(
+        "--host", default="127.0.0.1", help="Interface to bind (keep it local; API calls need the per-machine token)"
+    )
+    p.add_argument("--port", type=int, default=8765, help="Port to listen on (0 picks a free port)")
+    p.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    p.add_argument(
+        "--output-dir",
+        default="dupcheck-reports",
+        metavar="DIR",
+        help="Where every finished scan is saved as JSON, CSV and HTML; previous scans are listed in the dashboard",
+    )
+    p.add_argument("--load", metavar="REPORT.json", help="Open this saved JSON report when the dashboard starts")
+    p.add_argument(
+        "--allow-private-hosts",
+        action="store_true",
+        help="Let dashboard scans target localhost or private networks (off by default as a safety measure)",
+    )
+    p.add_argument("-q", "--quiet", action="store_true", help="Only log warnings and errors")
+    p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
+    return p
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="dupcheck",
         description="Crawl a website and report exact and near-duplicate pages.",
+        epilog="Run 'dupcheck' with no arguments (or 'dupcheck serve') to open the interactive dashboard "
+        "and launch scans from the browser.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("url", help="Absolute URL to start crawling from, e.g. https://example.com")
@@ -46,9 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     net.add_argument("--timeout", type=float, default=15.0, help="Per-request timeout in seconds")
     net.add_argument("--retries", type=int, default=2, help="Retries for transient HTTP errors")
     net.add_argument("--user-agent", default=DEFAULT_USER_AGENT, help="User-Agent header to send")
-    net.add_argument(
-        "--ignore-robots", action="store_true", help="Do not honour robots.txt (use only on sites you own)"
-    )
+    net.add_argument("--ignore-robots", action="store_true", help="Do not honor robots.txt (use only on sites you own)")
 
     ana = p.add_argument_group("analysis")
     ana.add_argument(
@@ -64,12 +92,18 @@ def build_parser() -> argparse.ArgumentParser:
     ana.add_argument(
         "--full-page",
         action="store_true",
-        help="Compare the whole page instead of the main content area (v1 behaviour)",
+        help="Compare the whole page instead of the main content area (v1 behavior)",
     )
 
     out = p.add_argument_group("output")
     out.add_argument("-o", "--output", default="duplicate_report.csv", metavar="CSV", help="CSV report path")
     out.add_argument("--json", metavar="PATH", help="Also write a JSON report with pages, stats and config")
+    out.add_argument("--html", metavar="PATH", help="Also write a self-contained HTML dashboard with an action plan")
+    out.add_argument(
+        "--portable",
+        action="store_true",
+        help="Write the HTML without the local engine token (for sharing; it then cannot launch scans)",
+    )
     out.add_argument("--no-summary", action="store_true", help="Do not print the Markdown summary to stdout")
     out.add_argument(
         "--fail-on-duplicates", action="store_true", help="Exit with status 1 when any duplicate pair is found (for CI)"
@@ -100,7 +134,32 @@ def config_from_args(args: argparse.Namespace) -> CrawlConfig:
     )
 
 
-def main(argv: list[str] | None = None, *, fetcher=None) -> int:
+def serve_main(argv: list[str], *, serve_fn=None) -> int:
+    parser = build_serve_parser()
+    args = parser.parse_args(argv)
+    level = logging.DEBUG if args.verbose else logging.WARNING if args.quiet else logging.INFO
+    logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
+    for handler in logging.getLogger().handlers:
+        handler.setLevel(level)  # the scan thread raises the package logger to INFO for the dashboard
+    from .server import ScanRunner, serve  # local import keeps plain runs light
+
+    runner = ScanRunner(output_dir=args.output_dir, allow_private_hosts=args.allow_private_hosts)
+    if args.load:
+        try:
+            runner.load(args.load)
+        except (OSError, ValueError) as exc:
+            parser.error(f"could not load {args.load}: {exc}")
+    (serve_fn or serve)(args.host, args.port, open_browser=not args.no_open, runner=runner)
+    return 0
+
+
+def main(argv: list[str] | None = None, *, fetcher=None, serve_fn=None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv:
+        return serve_main([], serve_fn=serve_fn)  # bare `dupcheck` opens the dashboard
+    if argv[0] == "serve":
+        return serve_main(argv[1:], serve_fn=serve_fn)
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -120,6 +179,11 @@ def main(argv: list[str] | None = None, *, fetcher=None) -> int:
     if args.json:
         write_json(report, args.json)
         logging.getLogger(__name__).info("JSON report written to %s", Path(args.json).resolve())
+    if args.html:
+        from .engine_token import get_or_create_token
+
+        write_html(report, args.html, token=None if args.portable else get_or_create_token())
+        logging.getLogger(__name__).info("HTML dashboard written to %s", Path(args.html).resolve())
 
     if not args.no_summary:
         sys.stdout.write(markdown_summary(report))

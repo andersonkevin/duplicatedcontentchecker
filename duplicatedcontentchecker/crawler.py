@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Callable
 
 from .extractor import extract_links, extract_page
 from .fetcher import Fetcher, HttpFetcher
@@ -23,8 +24,17 @@ class Crawler:
     ``max_pages`` regardless of depth.
     """
 
-    def __init__(self, config: CrawlConfig, fetcher: Fetcher | None = None) -> None:
+    def __init__(
+        self,
+        config: CrawlConfig,
+        fetcher: Fetcher | None = None,
+        *,
+        should_stop: Callable[[], bool] | None = None,
+    ) -> None:
         self.config = config
+        self.should_stop = should_stop
+        self.queued_count = 0
+        self.stopped_early = False
         self.fetcher = fetcher or HttpFetcher(
             user_agent=config.user_agent,
             timeout=config.timeout,
@@ -80,6 +90,11 @@ class Crawler:
                 queued.add(url)
 
         while queue and len(self.pages) < cfg.max_pages:
+            if self.should_stop is not None and self.should_stop():
+                log.info("Crawl canceled after %d pages", len(self.pages))
+                self.stopped_early = True
+                break
+            self.queued_count = len(queue)
             url, depth = queue.popleft()
             if url in self.visited:
                 self.stats.duplicates_of_visited += 1
@@ -126,6 +141,7 @@ class Crawler:
                 queued.add(link)
                 queue.append((link, depth + 1))
 
-        if queue:
+        self.queued_count = len(queue)
+        if queue and not self.stopped_early:
             log.info("Stopped at max_pages=%d with %d urls still queued", cfg.max_pages, len(queue))
         return list(self.pages.values())

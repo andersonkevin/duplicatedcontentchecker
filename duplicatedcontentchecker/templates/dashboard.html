@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duplicate content report</title>
+<meta name="dupcheck-mode" content="static">
+<meta name="dupcheck-version" content="">
+<meta name="dupcheck-engine" content="">
+<meta name="dupcheck-token" content="">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.04);
+  --series: #2a78d6; --series-soft: #cde2fb; --track: #b7d3f6;
+  --high: #d03b3b; --medium: #ec835a; --low: #898781; --good: #006300;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.05);
+    --series: #3987e5; --series-soft: #184f95; --track: #184f95; --good: #0ca30c;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; padding-block: 24px; padding-inline: 16px; }
+a { color: inherit; }
+.wrap { max-width: 1200px; margin: 0 auto; }
+header { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; margin-bottom: 16px; }
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+h2 { font-size: 15px; margin: 0 0 12px; font-weight: 600; }
+.sub { color: var(--ink-2); font-size: 13px; }
+.sub code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.grid { display: grid; gap: 12px; }
+.tiles { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 12px; }
+.tile .label { color: var(--ink-2); font-size: 12px; }
+.tile .value { font-size: 28px; font-weight: 600; margin-top: 2px; line-height: 1.1; }
+.tile.hero .value { font-size: 48px; }
+.tile .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.charts { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); margin-bottom: 12px; }
+svg { display: block; width: 100%; height: auto; }
+.bar { fill: var(--series); }
+.bar:hover, .bar.active { fill-opacity: 0.75; }
+.axis-text { fill: var(--muted); font-size: 11px; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.baseline { stroke: var(--axis); stroke-width: 1; }
+.tip { position: fixed; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.12); z-index: 10; display: none; }
+.filters { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+.filters label { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); font-size: 13px; }
+input[type=text], input[type=url], input[type=number], select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+input[type=text].search { min-width: 220px; flex: 1; }
+input[type=range] { accent-color: var(--series); }
+.chip { border: 1px solid var(--border); background: var(--surface); color: var(--ink-2); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--hover); color: var(--ink); border-color: var(--axis); font-weight: 600; }
+.btn { font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--series); border-color: var(--series); color: #fff; }
+.btn:disabled { opacity: .5; cursor: default; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 8px; border-top: 1px solid var(--grid); vertical-align: top; }
+th { color: var(--ink-2); font-weight: 600; border-top: 0; font-size: 12px; cursor: pointer; white-space: nowrap; user-select: none; }
+th .dir { color: var(--muted); }
+tr.row:hover { background: var(--hover); }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+td.url { word-break: break-all; max-width: 320px; }
+td.url a { color: var(--ink); text-decoration: none; }
+td.url a:hover { text-decoration: underline; }
+tr.done td { color: var(--muted); }
+tr.done td .title { text-decoration: line-through; }
+.why { color: var(--ink-2); font-size: 12px; margin-top: 4px; display: none; }
+tr.open .why { display: block; }
+.pri { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.pri .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.pri.high .dot { background: var(--high); } .pri.medium .dot { background: var(--medium); } .pri.low .dot { background: var(--low); }
+.kind { font-size: 11px; color: var(--ink-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+.tablewrap { overflow-x: auto; }
+.empty { color: var(--muted); padding: 24px; text-align: center; }
+.section { margin-bottom: 12px; }
+details > summary { cursor: pointer; font-weight: 600; font-size: 15px; margin-bottom: 12px; list-style: none; }
+details > summary::before { content: "▸ "; color: var(--muted); }
+details[open] > summary::before { content: "▾ "; }
+.cluster { border-top: 1px solid var(--grid); padding: 10px 0; }
+.cluster:first-of-type { border-top: 0; }
+.cluster .primary { font-weight: 600; word-break: break-all; }
+.cluster ul { margin: 4px 0 0 0; padding-left: 20px; color: var(--ink-2); word-break: break-all; }
+.form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 12px; align-items: end; }
+.form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.form label.check { flex-direction: row; align-items: center; color: var(--ink); font-size: 13px; }
+.form .full { grid-column: 1 / -1; }
+.progress { margin-top: 12px; display: none; }
+.progress .track { height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+.progress .fill { height: 100%; width: 0; background: var(--series); transition: width .3s; }
+.progress .text { font-size: 12px; color: var(--ink-2); margin-top: 6px; font-variant-numeric: tabular-nums; }
+.log { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 120px; overflow: auto; margin-top: 6px; white-space: pre-wrap; }
+.error { color: var(--high); font-size: 13px; margin-top: 8px; }
+.form label.history { margin-left: auto; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+[hidden] { display: none !important; }
+.cmd { display: block; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
+footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
+.sr { position: absolute; left: -9999px; }
+@media (max-width: 600px) { td.url { max-width: 200px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1 id="title">Duplicate content report</h1>
+      <div class="sub" id="subtitle"></div>
+    </div>
+    <div class="sub" id="meta"></div>
+  </header>
+
+  <section class="card section" id="scanPanel" hidden>
+    <h2 id="scanHeading">New scan</h2>
+    <div class="sub" id="staticNote" hidden style="margin:-6px 0 12px">
+      <span id="engineStatus">Looking for the local engine…</span>
+      <button class="btn" type="button" id="retryEngine" hidden style="margin-left:8px">Retry</button>
+    </div>
+    <form class="form" id="scanForm" autocomplete="off">
+      <label class="full">Start URL <input type="url" name="url" required placeholder="https://example.com"></label>
+      <label>Max depth <input type="number" name="max_depth" value="2" min="0" max="20"></label>
+      <label>Max pages <input type="number" name="max_pages" value="200" min="1" max="20000"></label>
+      <label>Similarity threshold <input type="number" name="threshold" value="0.8" min="0.05" max="1" step="0.01"></label>
+      <label>Min words <input type="number" name="min_words" value="50" min="0"></label>
+      <label>Delay (s) <input type="number" name="delay" value="0.2" min="0" step="0.1"></label>
+      <label>Timeout (s) <input type="number" name="timeout" value="15" min="1" step="1"></label>
+      <label>Include regex <input type="text" name="include" placeholder="/blog/"></label>
+      <label>Exclude regex <input type="text" name="exclude" placeholder="/tag/|/page/\d+"></label>
+      <label class="check"><input type="checkbox" name="use_sitemap"> Seed from sitemap</label>
+      <label class="check"><input type="checkbox" name="include_subdomains"> Include subdomains</label>
+      <label class="check"><input type="checkbox" name="strip_query"> Ignore query strings</label>
+      <label class="check"><input type="checkbox" name="full_page"> Compare full page</label>
+      <label class="check"><input type="checkbox" name="ignore_robots"> Ignore robots.txt</label>
+      <div class="full" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn primary" type="submit" id="runBtn">Run scan</button>
+        <button class="btn" type="button" id="cancelBtn" disabled>Cancel</button>
+        <button class="btn" type="button" id="copyCmd">Copy command</button>
+        <span class="sub" id="scanState"></span>
+        <label id="historyWrap" class="history" hidden>Previous scans
+          <select id="history"><option value="">Choose…</option></select>
+        </label>
+      </div>
+      <div class="full sub" id="savedNote" hidden></div>
+      <div class="full" id="cmdWrap" hidden>
+        <code class="cmd" id="cmdPreview"></code>
+      </div>
+    </form>
+    <div class="progress" id="progress">
+      <div class="track"><div class="fill" id="progressFill"></div></div>
+      <div class="text" id="progressText"></div>
+      <div class="log" id="log"></div>
+    </div>
+    <div class="error" id="scanError"></div>
+  </section>
+
+  <div id="report">
+    <div class="grid tiles" id="tiles"></div>
+
+    <div class="grid charts">
+      <div class="card">
+        <h2>Similarity of flagged pairs</h2>
+        <div class="sub" style="margin:-8px 0 8px">Click a bar to filter the action list to that range.</div>
+        <div id="histogram"></div>
+      </div>
+      <div class="card">
+        <h2>Pages by state</h2>
+        <div class="sub" style="margin:-8px 0 8px">How much of the crawled site is affected.</div>
+        <div id="states"></div>
+      </div>
+    </div>
+
+    <section class="card section">
+      <h2>Action plan</h2>
+      <div class="filters" id="filters">
+        <input type="text" class="search" id="q" placeholder="Search URL or action…">
+        <span class="sub">Priority</span>
+        <button class="chip" data-pri="high" aria-pressed="true"><span class="pri high"><span class="dot"></span>High</span></button>
+        <button class="chip" data-pri="medium" aria-pressed="true"><span class="pri medium"><span class="dot"></span>Medium</span></button>
+        <button class="chip" data-pri="low" aria-pressed="true"><span class="pri low"><span class="dot"></span>Low</span></button>
+        <label>Type
+          <select id="kind">
+            <option value="">All</option>
+            <option value="redirect">Redirect</option>
+            <option value="consolidate">Consolidate</option>
+            <option value="differentiate">Differentiate</option>
+            <option value="verify-canonical">Verify canonical</option>
+            <option value="verify-noindex">Verify noindex</option>
+            <option value="thin">Thin page</option>
+          </select>
+        </label>
+        <label>Min similarity <input type="range" id="minSim" min="0" max="100" value="0"> <span id="minSimVal">any</span></label>
+        <label><input type="checkbox" id="hideDone"> Hide done</label>
+        <button class="chip" id="clearFilters">Clear filters</button>
+        <span class="sub" id="count" style="margin-left:auto"></span>
+        <button class="btn" id="copyMd">Copy as Markdown checklist</button>
+        <a class="btn" id="dlCsv" download="duplicate_report.csv">CSV</a>
+        <a class="btn" id="dlJson" download="duplicate_report.json">JSON</a>
+      </div>
+      <div class="tablewrap">
+        <table id="actions">
+          <thead><tr>
+            <th title="Mark as done (saved in this browser)">✓</th>
+            <th data-sort="priority">Priority <span class="dir"></span></th>
+            <th data-sort="title">Action <span class="dir"></span></th>
+            <th data-sort="keep_url">Keep <span class="dir"></span></th>
+            <th data-sort="change_url">Change <span class="dir"></span></th>
+            <th data-sort="similarity" class="num">Similarity <span class="dir"></span></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="actionsEmpty" hidden>No actions match the current filters.</div>
+      </div>
+    </section>
+
+    <section class="card section">
+      <details open>
+        <summary>Duplicate clusters</summary>
+        <div id="clusters"></div>
+      </details>
+    </section>
+
+    <section class="card section">
+      <details>
+        <summary>All crawled pages</summary>
+        <div class="filters">
+          <input type="text" class="search" id="pq" placeholder="Search URL or title…">
+          <label><input type="checkbox" id="onlyFlagged"> Only flagged</label>
+          <label><input type="checkbox" id="onlyNoindex"> Only noindex</label>
+          <label><input type="checkbox" id="onlyCanonical"> Has canonical elsewhere</label>
+          <span class="sub" id="pcount" style="margin-left:auto"></span>
+        </div>
+        <div class="tablewrap">
+          <table id="pages">
+            <thead><tr>
+              <th data-psort="url">URL <span class="dir"></span></th>
+              <th data-psort="title">Title <span class="dir"></span></th>
+              <th data-psort="depth" class="num">Depth <span class="dir"></span></th>
+              <th data-psort="word_count" class="num">Words <span class="dir"></span></th>
+              <th data-psort="state">State <span class="dir"></span></th>
+              <th>Canonical</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <footer>
+    <div><b>How to read this.</b> High = identical or near-identical content that splits ranking signals; fix with a 301 redirect or rel=canonical. Medium = heavy overlap; differentiate or canonicalize. Low = already handled (verify) or thin pages. Similarity is lexical TF-IDF cosine over main content; it does not judge meaning. Content rendered only by JavaScript is not seen.</div>
+    <div style="margin-top:6px">Generated by duplicatedcontentchecker <span id="version"></span>. Done-checkmarks are stored in this browser only.</div>
+  </footer>
+</div>
+<div class="tip" id="tip"></div>
+
+<script id="report-data" type="application/json">null</script>
+<script>
+(function () {
+  "use strict";
+  const $ = (s, r) => (r || document).querySelector(s);
+  const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
+  const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const LIVE = (document.querySelector('meta[name="dupcheck-mode"]') || {}).content === "live";
+  const meta = n => (document.querySelector('meta[name="dupcheck-' + n + '"]') || {}).content || "";
+  const VERSION = meta("version"), ENGINE = meta("engine") || "http://127.0.0.1:8765", TOKEN = meta("token");
+  let API = LIVE ? "" : null;  // base URL of the engine once connected
+  function api(path, opts) {
+    opts = opts || {}; opts.headers = Object.assign({}, opts.headers || {}, TOKEN ? {"X-Dupcheck-Token": TOKEN} : {});
+    return fetch((API || "") + path, opts);
+  }
+  function apiUrl(path) { return (API || "") + path + (TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : ""); }
+  const PRI = {high: 0, medium: 1, low: 2};
+  const tip = $("#tip");
+
+  let report = null;
+  let done = new Set();
+  let state = { q: "", pri: new Set(["high","medium","low"]), kind: "", minSim: 0, maxSim: 1.0001, hideDone: false, sort: "priority", dir: 1,
+                pq: "", onlyFlagged: false, onlyNoindex: false, onlyCanonical: false, psort: "url", pdir: 1 };
+
+  // ---- storage for done marks (per site) ----
+  function storeKey() { return "dupcheck:done:" + (report ? report.base_url : ""); }
+  function loadDone() { try { done = new Set(JSON.parse(localStorage.getItem(storeKey()) || "[]")); } catch (e) { done = new Set(); } }
+  function saveDone() { try { localStorage.setItem(storeKey(), JSON.stringify([...done])); } catch (e) {} }
+  function actionKey(a) { return a.code + "|" + (a.keep_url || "") + "|" + (a.change_url || "") + "|" + (a.urls || []).join(","); }
+
+  // ---- tooltip ----
+  function showTip(html, ev) { tip.innerHTML = html; tip.style.display = "block"; moveTip(ev); }
+  function moveTip(ev) { const x = ev.clientX + 12, y = ev.clientY + 12; tip.style.left = Math.min(x, window.innerWidth - tip.offsetWidth - 8) + "px"; tip.style.top = Math.min(y, window.innerHeight - tip.offsetHeight - 8) + "px"; }
+  function hideTip() { tip.style.display = "none"; }
+
+  // ---- tiles ----
+  function renderTiles() {
+    const s = report.summary, high = report.actions.filter(a => a.priority === "high").length;
+    const tiles = [
+      {label: "High-priority actions", value: high, hero: true, hint: high ? "Redirects and consolidations to do first" : "Nothing urgent"},
+      {label: "Pages crawled", value: s.pages_crawled, hint: report.stats.failed === 1 ? "1 fetch failure" : report.stats.failed ? report.stats.failed + " fetch failures" : "No fetch failures"},
+      {label: "Exact duplicate pairs", value: s.exact_duplicate_pairs},
+      {label: "Near-duplicate pairs", value: s.near_duplicate_pairs, hint: "≥ " + Math.round(report.config.threshold * 100) + "% similar"},
+      {label: "Duplicate clusters", value: report.clusters.length, hint: "Groups sharing one primary"},
+      {label: "Thin pages", value: s.thin_pages, hint: "< " + report.config.min_words + " words"},
+    ];
+    $("#tiles").innerHTML = tiles.map(t => `<div class="card tile${t.hero ? " hero" : ""}"><div class="label">${esc(t.label)}</div><div class="value">${t.value.toLocaleString()}</div>${t.hint ? `<div class="hint">${esc(t.hint)}</div>` : ""}</div>`).join("");
+  }
+
+  // ---- charts ----
+  function barChart(el, bins, opts) {
+    const W = 520, H = 200, padL = 36, padR = 8, padT = 12, padB = 28;
+    const max = Math.max(1, ...bins.map(b => b.count));
+    const n = bins.length, slot = (W - padL - padR) / n, bw = Math.min(24, slot - 4);
+    const ticks = niceTicks(max);
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.aria)}">`;
+    ticks.forEach(t => { const y = padT + (H - padT - padB) * (1 - t / max); svg += `<line class="gridline" x1="${padL}" x2="${W - padR}" y1="${y}" y2="${y}"/><text class="axis-text" x="${padL - 6}" y="${y + 4}" text-anchor="end">${t.toLocaleString()}</text>`; });
+    svg += `<line class="baseline" x1="${padL}" x2="${W - padR}" y1="${H - padB}" y2="${H - padB}"/>`;
+    bins.forEach((b, i) => {
+      const x = padL + i * slot + (slot - bw) / 2, h = (H - padT - padB) * (b.count / max), y = H - padB - h;
+      const r = Math.min(4, h);
+      const path = h > 0 ? `M${x},${H - padB} v${-(h - r)} a${r},${r} 0 0 1 ${r},${-r} h${bw - 2 * r} a${r},${r} 0 0 1 ${r},${r} v${h - r} z` : "";
+      svg += `<g class="bin" data-i="${i}"><rect x="${padL + i * slot}" y="${padT}" width="${slot}" height="${H - padT - padB}" fill="transparent"/>${path ? `<path class="bar${b.active ? " active" : ""}" d="${path}"/>` : ""}</g>`;
+      if (opts.labelEvery === 1 || i % opts.labelEvery === 0 || i === n - 1) svg += `<text class="axis-text" x="${x + bw / 2}" y="${H - padB + 16}" text-anchor="middle">${esc(b.label)}</text>`;
+    });
+    svg += `</svg>`;
+    el.innerHTML = svg;
+    $$("g.bin", el).forEach(g => {
+      const b = bins[+g.dataset.i];
+      g.addEventListener("mousemove", ev => showTip(`<b>${esc(b.tip)}</b><br>${b.count.toLocaleString()} ${esc(opts.unit)}`, ev));
+      g.addEventListener("mouseleave", hideTip);
+      if (opts.onClick) { g.style.cursor = "pointer"; g.addEventListener("click", () => opts.onClick(b)); }
+    });
+  }
+  function niceTicks(max) { const step = max <= 5 ? 1 : Math.pow(10, Math.floor(Math.log10(max))) * (max / Math.pow(10, Math.floor(Math.log10(max))) > 5 ? 2 : 1); const out = []; for (let t = 0; t <= max; t += step) out.push(t); if (out[out.length - 1] < max) out.push(Math.ceil(max / step) * step); return out; }
+
+  function renderHistogram() {
+    const th = report.config.threshold, start = Math.floor(th * 20) / 20, width = 0.05;
+    const bins = [];
+    for (let lo = start; lo < 1.0 - 1e-9; lo = +(lo + width).toFixed(2)) bins.push({lo, hi: +(lo + width).toFixed(2), count: 0});
+    bins.push({lo: 1.0, hi: 1.0, count: 0, exact: true});
+    report.pairs.forEach(p => { if (p.similarity >= 1) bins[bins.length - 1].count++; else { const b = bins.find(b => !b.exact && p.similarity >= b.lo && p.similarity < b.hi); if (b) b.count++; } });
+    bins.forEach(b => { b.label = b.exact ? "exact" : Math.round(b.lo * 100) + "%"; b.tip = b.exact ? "Exact duplicates (100%)" : `${Math.round(b.lo * 100)}–${Math.round(b.hi * 100)}% similar`; b.unit = "pairs"; b.active = state.minSim === b.lo && state.maxSim === (b.exact ? 1.0001 : b.hi); });
+    barChart($("#histogram"), bins, {aria: "Histogram of similarity scores", unit: "pairs", labelEvery: 1, onClick: b => { if (b.active) { state.minSim = 0; state.maxSim = 1.0001; } else { state.minSim = b.lo; state.maxSim = b.exact ? 1.0001 : b.hi; } $("#minSim").value = Math.round(state.minSim * 100); renderAll(); }});
+  }
+  function pageState(p) { return p.flagged ? (p.exact ? "exact duplicate" : "near duplicate") : (p.thin ? "thin" : "unique"); }
+  function renderStates() {
+    const counts = {unique: 0, "near duplicate": 0, "exact duplicate": 0, thin: 0};
+    report.pages.forEach(p => counts[pageState(p)]++);
+    const bins = ["unique", "near duplicate", "exact duplicate", "thin"].map(k => ({label: k, tip: k[0].toUpperCase() + k.slice(1) + " pages", count: counts[k]}));
+    barChart($("#states"), bins, {aria: "Pages by state", unit: "pages", labelEvery: 1});
+  }
+
+  // ---- actions table ----
+  function filteredActions() {
+    const q = state.q.toLowerCase();
+    return report.actions.filter(a => {
+      if (!state.pri.has(a.priority)) return false;
+      if (state.kind && a.code !== state.kind) return false;
+      const sim = a.similarity == null ? null : a.similarity;
+      if (state.minSim > 0 && (sim == null || sim < state.minSim)) return false;
+      if (state.maxSim < 1.0001 && sim != null && sim >= state.maxSim) return false;
+      if (state.hideDone && done.has(actionKey(a))) return false;
+      if (q && !(a.title + " " + (a.keep_url || "") + " " + (a.change_url || "") + " " + a.urls.join(" ") + " " + a.code).toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a, b) => {
+      const k = state.sort;
+      let va = k === "priority" ? PRI[a.priority] : (a[k] == null ? -1 : a[k]), vb = k === "priority" ? PRI[b.priority] : (b[k] == null ? -1 : b[k]);
+      if (typeof va === "string") va = va.toLowerCase(); if (typeof vb === "string") vb = vb.toLowerCase();
+      if (va < vb) return -state.dir; if (va > vb) return state.dir;
+      return (b.similarity || 0) - (a.similarity || 0);
+    });
+  }
+  // Crawled data is untrusted: only http(s) URLs become links, everything else is shown as text.
+  function link(u) {
+    if (!u) return "<span class=\"sub\">—</span>";
+    return /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u);
+  }
+  function renderActions() {
+    const rows = filteredActions(), tb = $("#actions tbody");
+    tb.innerHTML = rows.map((a, i) => {
+      const k = actionKey(a), isDone = done.has(k);
+      const group = a.cluster_id ? ` <span class="kind" title="Duplicate group">group ${a.cluster_id}</span>` : "";
+      return `<tr class="row${isDone ? " done" : ""}" data-k="${esc(k)}">
+        <td><input type="checkbox" ${isDone ? "checked" : ""} aria-label="Done"></td>
+        <td><span class="pri ${a.priority}"><span class="dot"></span>${a.priority}</span></td>
+        <td><div class="title">${esc(a.title)} <span class="kind">${esc(a.code)}</span>${group}</div><div class="why">${esc(a.why)}</div></td>
+        <td class="url">${link(a.keep_url)}</td>
+        <td class="url">${link(a.change_url)}</td>
+        <td class="num">${a.similarity == null ? "—" : Math.round(a.similarity * 1000) / 10 + "%"}</td>
+      </tr>`;
+    }).join("");
+    $("#actionsEmpty").hidden = rows.length > 0;
+    $("#count").textContent = rows.length + " of " + report.actions.length + " actions";
+    $$("th[data-sort]").forEach(th => $(".dir", th).textContent = th.dataset.sort === state.sort ? (state.dir === 1 ? "▲" : "▼") : "");
+    $$("tr.row", tb).forEach(tr => {
+      tr.addEventListener("click", ev => { if (ev.target.closest("a, input")) return; tr.classList.toggle("open"); });
+      $("input", tr).addEventListener("change", ev => { const k = tr.dataset.k; ev.target.checked ? done.add(k) : done.delete(k); saveDone(); tr.classList.toggle("done", ev.target.checked); if (state.hideDone) renderActions(); });
+    });
+  }
+
+  // ---- clusters ----
+  function renderClusters() {
+    const el = $("#clusters");
+    if (!report.clusters.length) { el.innerHTML = `<div class="empty">No duplicate clusters.</div>`; return; }
+    el.innerHTML = report.clusters.map(c => `<div class="cluster">
+      <div><span class="kind">group ${c.id}</span> <span class="kind">${esc(c.kind)}</span> <span class="sub">${c.members.length} pages · min similarity ${Math.round(c.min_similarity * 100)}%</span></div>
+      <div class="primary">Keep: ${link(c.primary)}</div>
+      <ul>${c.members.filter(m => m !== c.primary).map(m => `<li>${link(m)}</li>`).join("")}</ul>
+    </div>`).join("");
+  }
+
+  // ---- pages table ----
+  function renderPages() {
+    const q = state.pq.toLowerCase();
+    const rows = report.pages.filter(p => {
+      if (state.onlyFlagged && !p.flagged) return false;
+      if (state.onlyNoindex && !p.noindex) return false;
+      if (state.onlyCanonical && !(p.canonical && p.canonical !== p.url)) return false;
+      if (q && !(p.url + " " + p.title).toLowerCase().includes(q)) return false;
+      return true;
+    }).map(p => Object.assign({state: pageState(p)}, p)).sort((a, b) => {
+      let va = a[state.psort], vb = b[state.psort]; if (typeof va === "string") va = va.toLowerCase(); if (typeof vb === "string") vb = vb.toLowerCase();
+      return va < vb ? -state.pdir : va > vb ? state.pdir : 0;
+    });
+    $("#pages tbody").innerHTML = rows.map(p => `<tr class="row">
+      <td class="url">${link(p.url)}</td><td>${esc(p.title)}${p.noindex ? ' <span class="kind">noindex</span>' : ""}</td>
+      <td class="num">${p.depth}</td><td class="num">${p.word_count.toLocaleString()}</td><td>${esc(p.state)}</td>
+      <td class="url">${p.canonical && p.canonical !== p.url ? link(p.canonical) : '<span class="sub">—</span>'}</td></tr>`).join("");
+    $("#pcount").textContent = rows.length + " of " + report.pages.length + " pages";
+    $$("th[data-psort]").forEach(th => $(".dir", th).textContent = th.dataset.psort === state.psort ? (state.pdir === 1 ? "▲" : "▼") : "");
+  }
+
+  // ---- header / downloads ----
+  function renderHeader() {
+    $("#title").textContent = "Duplicate content report · " + report.base_url;
+    document.title = "Duplicate content · " + report.base_url;
+    const c = report.config;
+    $("#subtitle").innerHTML = `depth <code>${c.max_depth}</code> · max pages <code>${c.max_pages}</code> · threshold <code>${c.threshold}</code> · min words <code>${c.min_words}</code>${c.use_sitemap ? " · sitemap" : ""}${c.include_patterns.length ? ` · include <code>${esc(c.include_patterns.join(" | "))}</code>` : ""}${c.exclude_patterns.length ? ` · exclude <code>${esc(c.exclude_patterns.join(" | "))}</code>` : ""}`;
+    $("#meta").textContent = "Generated " + new Date(report.generated_at).toLocaleString();
+    $("#version").textContent = "v" + (report.version || VERSION);
+    if (API !== null && !report.__fromFile) { $("#dlCsv").href = apiUrl("/api/report.csv"); $("#dlJson").href = apiUrl("/api/report.json"); }
+    else {
+      $("#dlJson").href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: "application/json"}));
+      const csv = ["URL_1,URL_2,Similarity,Type,Note"].concat(report.pairs.map(p => [p.url_1, p.url_2, p.similarity.toFixed(4), p.type, (p.canonicalized ? "canonical points to the other page" : "") + (p.canonicalized && p.noindex ? "; " : "") + (p.noindex ? "at least one page is noindex" : "")].map(v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v).join(","))).join("\n");
+      $("#dlCsv").href = URL.createObjectURL(new Blob([csv], {type: "text/csv"}));
+    }
+  }
+  function markdownChecklist() {
+    const rows = filteredActions();
+    const lines = [`# Duplicate content actions for ${report.base_url}`, ""];
+    ["high", "medium", "low"].forEach(p => {
+      const rs = rows.filter(a => a.priority === p); if (!rs.length) return;
+      lines.push(`## ${p[0].toUpperCase() + p.slice(1)} priority`, "");
+      rs.forEach(a => lines.push(`- [${done.has(actionKey(a)) ? "x" : " "}] **${a.title}**${a.similarity != null ? ` (${Math.round(a.similarity * 100)}%)` : ""}` + (a.keep_url ? `\n  - keep: ${a.keep_url}` : "") + (a.change_url ? `\n  - change: ${a.change_url}` : "") + `\n  - why: ${a.why}`));
+      lines.push("");
+    });
+    return lines.join("\n");
+  }
+
+  // ---- scan form: prefill from the report and build the equivalent command ----
+  const form = $("#scanForm");
+  function prefillForm(c) {
+    const set = (n, v) => { const el = form.elements[n]; if (!el) return; if (el.type === "checkbox") el.checked = !!v; else el.value = v == null ? "" : v; };
+    set("url", c.base_url); set("max_depth", c.max_depth); set("max_pages", c.max_pages); set("threshold", c.threshold);
+    set("min_words", c.min_words); set("delay", c.delay); set("timeout", c.timeout);
+    set("include", (c.include_patterns || []).join("|")); set("exclude", (c.exclude_patterns || []).join("|"));
+    set("use_sitemap", c.use_sitemap); set("include_subdomains", c.include_subdomains); set("strip_query", c.strip_query);
+    set("full_page", c.full_page); set("ignore_robots", c.respect_robots === false);
+    updateCmd();
+  }
+  function shellQuote(s) { return /^[A-Za-z0-9_./:=@%+-]+$/.test(s) ? s : "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+  function buildCmd() {
+    const f = form.elements, parts = ["dupcheck", shellQuote(f.url.value || "https://example.com")];
+    const add = (flag, v, def) => { if (v !== "" && String(v) !== String(def)) parts.push(flag, shellQuote(v)); };
+    add("-d", f.max_depth.value, 2); add("-n", f.max_pages.value, 500); add("-t", f.threshold.value, 0.8);
+    add("--min-words", f.min_words.value, 50); add("--delay", f.delay.value, 0); add("--timeout", f.timeout.value, 15);
+    (f.include.value || "").split("|").map(s => s.trim()).filter(Boolean).forEach(p => parts.push("--include", shellQuote(p)));
+    (f.exclude.value || "").split("|").map(s => s.trim()).filter(Boolean).forEach(p => parts.push("--exclude", shellQuote(p)));
+    if (f.use_sitemap.checked) parts.push("--sitemap"); if (f.include_subdomains.checked) parts.push("--include-subdomains");
+    if (f.strip_query.checked) parts.push("--strip-query"); if (f.full_page.checked) parts.push("--full-page");
+    if (f.ignore_robots.checked) parts.push("--ignore-robots");
+    parts.push("--html", "report.html");
+    return parts.join(" ");
+  }
+  function updateCmd() { $("#cmdPreview").textContent = buildCmd(); }
+  form.addEventListener("input", updateCmd);
+  $("#copyCmd").addEventListener("click", async () => {
+    const cmd = buildCmd(), btn = $("#copyCmd");
+    try { await navigator.clipboard.writeText(cmd); } catch (e) { const ta = document.createElement("textarea"); ta.value = cmd; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+    btn.textContent = "Copied!"; setTimeout(() => btn.textContent = "Copy command", 1500);
+  });
+
+  // ---- wire up ----
+  function renderAll() { renderTiles(); renderHistogram(); renderStates(); renderActions(); renderClusters(); renderPages(); }
+  function setReport(r) {
+    report = r;
+    const flagged = new Map(); r.pairs.forEach(p => { [p.url_1, p.url_2].forEach(u => { const f = flagged.get(u) || {exact: false}; if (p.type === "exact") f.exact = true; flagged.set(u, f); }); });
+    const thin = new Set(r.thin_pages.map(t => t.url));
+    r.pages.forEach(p => { const f = flagged.get(p.url); p.flagged = !!f; p.exact = !!(f && f.exact); p.thin = thin.has(p.url); });
+    loadDone(); renderHeader(); renderAll(); prefillForm(r.config);
+    $("#report").hidden = false;
+  }
+
+  $("#q").addEventListener("input", e => { state.q = e.target.value; renderActions(); });
+  $$(".chip[data-pri]").forEach(b => b.addEventListener("click", () => { const on = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", on); on ? state.pri.add(b.dataset.pri) : state.pri.delete(b.dataset.pri); renderActions(); }));
+  $("#kind").addEventListener("change", e => { state.kind = e.target.value; renderActions(); });
+  $("#minSim").addEventListener("input", e => { state.minSim = +e.target.value / 100; state.maxSim = 1.0001; $("#minSimVal").textContent = state.minSim ? Math.round(state.minSim * 100) + "%" : "any"; renderHistogram(); renderActions(); });
+  $("#hideDone").addEventListener("change", e => { state.hideDone = e.target.checked; renderActions(); });
+  $("#clearFilters").addEventListener("click", () => { state.q = ""; $("#q").value = ""; state.pri = new Set(["high","medium","low"]); $$(".chip[data-pri]").forEach(b => b.setAttribute("aria-pressed", "true")); state.kind = ""; $("#kind").value = ""; state.minSim = 0; state.maxSim = 1.0001; $("#minSim").value = 0; $("#minSimVal").textContent = "any"; state.hideDone = false; $("#hideDone").checked = false; renderHistogram(); renderActions(); });
+  $$("th[data-sort]").forEach(th => th.addEventListener("click", () => { const k = th.dataset.sort; if (state.sort === k) state.dir = -state.dir; else { state.sort = k; state.dir = 1; } renderActions(); }));
+  $("#pq").addEventListener("input", e => { state.pq = e.target.value; renderPages(); });
+  ["onlyFlagged", "onlyNoindex", "onlyCanonical"].forEach(id => $("#" + id).addEventListener("change", e => { state[id] = e.target.checked; renderPages(); }));
+  $$("th[data-psort]").forEach(th => th.addEventListener("click", () => { const k = th.dataset.psort; if (state.psort === k) state.pdir = -state.pdir; else { state.psort = k; state.pdir = 1; } renderPages(); }));
+  $("#copyMd").addEventListener("click", async () => { const md = markdownChecklist(); try { await navigator.clipboard.writeText(md); $("#copyMd").textContent = "Copied!"; } catch (e) { const ta = document.createElement("textarea"); ta.value = md; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); $("#copyMd").textContent = "Copied!"; } setTimeout(() => $("#copyMd").textContent = "Copy as Markdown checklist", 1500); });
+  document.addEventListener("scroll", hideTip, {passive: true});
+
+  // ---- engine mode: scan form + polling (served page, or a file talking to the local engine) ----
+  $("#scanPanel").hidden = false;
+  $("#cmdWrap").hidden = false;
+  if (VERSION) $("#version").textContent = "v" + VERSION;
+  const runBtn = $("#runBtn"), cancelBtn = $("#cancelBtn");
+  let engineEnabled = false, timer = null;
+
+  function setRunning(on) { runBtn.disabled = on; cancelBtn.disabled = !on; if (on) $("#progress").style.display = "block"; }
+  function showSaved(st) {
+    const note = $("#savedNote");
+    if (st.saved && st.saved.json) {
+      const dir = st.saved.json.replace(/[\\/][^\\/]*$/, "");
+      note.textContent = "Saved to " + dir + ": " + Object.keys(st.saved).map(k => st.saved[k].split(/[\\/]/).pop()).join(", ");
+      note.hidden = false;
+    } else if (st.output_dir) { note.textContent = "Finished scans are saved to " + st.output_dir; note.hidden = false; }
+  }
+  async function loadHistory() {
+    const h = await (await api("/api/history")).json();
+    const sel = $("#history");
+    sel.innerHTML = '<option value="">Choose…</option>' + (h.reports || []).map(r => `<option value="${esc(r.file)}">${esc(r.base_url)} · ${esc((r.generated_at || "").replace("T", " ").slice(0, 16))} · ${r.pages} pages · ${r.high} high</option>`).join("");
+    $("#historyWrap").hidden = !(h.reports && h.reports.length);
+  }
+  async function pullReport() { const r = await (await api("/api/report")).json(); setReport(r); }
+  async function poll(replaceOnDone) {
+    let st;
+    try { st = await (await api("/api/status")).json(); } catch (e) { engineLost(); return; }
+    $("#scanState").textContent = st.state;
+    if (st.state === "running") {
+      setRunning(true);
+      const pct = st.progress.max_pages ? Math.min(100, Math.round(100 * st.progress.fetched / st.progress.max_pages)) : 0;
+      $("#progressFill").style.width = pct + "%";
+      $("#progressText").textContent = `${st.progress.fetched} pages fetched · ${st.progress.queued} queued · ${st.progress.failed} failed · ${st.progress.phase}`;
+      $("#log").textContent = (st.log || []).join("\n"); $("#log").scrollTop = $("#log").scrollHeight;
+      timer = setTimeout(() => poll(true), 800);
+    } else {
+      setRunning(false);
+      if (st.state === "done" && replaceOnDone) { $("#progressFill").style.width = "100%"; $("#progressText").textContent = "Finished"; await pullReport(); showSaved(st); loadHistory(); }
+      else if (st.state === "error" && replaceOnDone) { $("#scanError").textContent = st.error || "Scan failed"; }
+      if (st.log && replaceOnDone) { $("#log").textContent = st.log.join("\n"); }
+    }
+  }
+  function engineLost() {
+    engineEnabled = false; API = LIVE ? "" : null;
+    $("#scanState").textContent = "";
+    $("#engineStatus").textContent = "Lost the connection to the local engine. Start it with `dupcheck` (keep it open), then retry.";
+    $("#staticNote").hidden = false; $("#retryEngine").hidden = false; runBtn.disabled = true; cancelBtn.disabled = true;
+  }
+  function enableEngine(base) {
+    API = base; engineEnabled = true;
+    $("#scanHeading").textContent = "New scan";
+    runBtn.hidden = false; cancelBtn.hidden = false; runBtn.disabled = false;
+    if (LIVE) { $("#staticNote").hidden = true; }
+    else { $("#engineStatus").textContent = "Connected to the local engine at " + base + ". Scans run and save from this page."; $("#retryEngine").hidden = true; $("#staticNote").hidden = false; }
+    loadHistory().catch(() => {});
+    api("/api/status").then(r => r.json()).then(showSaved).catch(() => {});
+  }
+  $("#history").addEventListener("change", async ev => {
+    if (!ev.target.value || !engineEnabled) return;
+    const res = await api("/api/open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({file: ev.target.value})});
+    if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
+    await pullReport(); showSaved(await (await api("/api/status")).json());
+    ev.target.value = "";
+  });
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault(); $("#scanError").textContent = "";
+    if (!engineEnabled) { $("#scanError").textContent = "The local engine is not running. Start it with `dupcheck` and retry."; return; }
+    const fd = new FormData(form), body = {};
+    fd.forEach((v, k) => body[k] = v); ["use_sitemap","include_subdomains","strip_query","full_page","ignore_robots"].forEach(k => body[k] = fd.get(k) === "on");
+    let res;
+    try { res = await api("/api/scan", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}); } catch (e) { engineLost(); return; }
+    if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
+    $("#progress").style.display = "block"; $("#progressFill").style.width = "0"; $("#log").textContent = ""; setRunning(true); poll(true);
+  });
+  cancelBtn.addEventListener("click", () => api("/api/cancel", {method: "POST"}));
+  $("#retryEngine").addEventListener("click", () => connectEngine());
+
+  async function connectEngine() {
+    $("#engineStatus").textContent = "Looking for the local engine…";
+    try {
+      const r = await fetch(ENGINE + "/api/status", {headers: TOKEN ? {"X-Dupcheck-Token": TOKEN} : {}});
+      if (r.status === 401) throw new Error("token");
+      if (!r.ok) throw new Error(r.statusText);
+      enableEngine(ENGINE); poll(false);
+    } catch (e) {
+      const why = e.message === "token" ? "This report was written on another machine, so it cannot use this engine. Generate it locally with dupcheck." : "The local engine is not running.";
+      $("#engineStatus").textContent = why + " Start it with `dupcheck` in a terminal (keep it open), then retry. Meanwhile the parameters below build a command you can run.";
+      $("#retryEngine").hidden = false; runBtn.hidden = false; runBtn.disabled = true; cancelBtn.hidden = true;
+    }
+  }
+
+  updateCmd();
+  if (LIVE) {
+    enableEngine("");
+    api("/api/report").then(r => r.ok ? r.json() : null).then(r => { if (r) setReport(r); else $("#report").hidden = true; }).then(() => poll(true));
+  } else {
+    $("#scanHeading").textContent = "Run again with different parameters";
+    $("#staticNote").hidden = false;
+    const data = JSON.parse($("#report-data").textContent);
+    if (data) { data.__fromFile = true; setReport(data); } else { $("#report").hidden = true; }
+    connectEngine();
+  }
+})();
+</script>
+</body>
+</html>
