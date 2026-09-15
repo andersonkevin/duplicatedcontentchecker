@@ -70,7 +70,7 @@ def _has_noise_hint(tag) -> bool:
 def extract_page(html: str, url: str, depth: int = 0, *, full_page: bool = False) -> Page:
     """Build a :class:`Page` from ``html``.
 
-    ``full_page=True`` restores v1 behaviour (everything except script/style).
+    ``full_page=True`` restores v1 behavior (everything except script/style).
     """
     soup = BeautifulSoup(html, "html.parser")
 
