@@ -94,6 +94,8 @@ details[open] > summary::before { content: "▾ "; }
 .progress .text { font-size: 12px; color: var(--ink-2); margin-top: 6px; font-variant-numeric: tabular-nums; }
 .log { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); max-height: 120px; overflow: auto; margin-top: 6px; white-space: pre-wrap; }
 .error { color: var(--high); font-size: 13px; margin-top: 8px; }
+.form label.history { margin-left: auto; flex-direction: row; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+[hidden] { display: none !important; }
 .cmd { display: block; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--hover); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; white-space: pre-wrap; word-break: break-all; color: var(--ink); }
 footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
 .sr { position: absolute; left: -9999px; }
@@ -113,8 +115,9 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   <section class="card section" id="scanPanel" hidden>
     <h2 id="scanHeading">New scan</h2>
     <div class="sub" id="staticNote" hidden style="margin:-6px 0 12px">
-      This file is a static report, so it cannot start a crawl by itself. Adjust the parameters below and copy the
-      command to run it from your terminal, or start <code>dupcheck serve</code> to run scans directly from this page.
+      This file is a snapshot, so it cannot start a crawl by itself. To run scans with a Run button, open the live
+      dashboard with <code>dupcheck</code> (or <code>dupcheck serve --load report.json</code> to continue from this
+      report). Otherwise adjust the parameters below and copy the command for your terminal.
     </div>
     <form class="form" id="scanForm" autocomplete="off">
       <label class="full">Start URL <input type="url" name="url" required placeholder="https://example.com"></label>
@@ -136,7 +139,11 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
         <button class="btn" type="button" id="cancelBtn" disabled>Cancel</button>
         <button class="btn" type="button" id="copyCmd">Copy command</button>
         <span class="sub" id="scanState"></span>
+        <label id="historyWrap" class="history" hidden>Previous scans
+          <select id="history"><option value="">Choose…</option></select>
+        </label>
       </div>
+      <div class="full sub" id="savedNote" hidden></div>
       <div class="full" id="cmdWrap" hidden>
         <code class="cmd" id="cmdPreview"></code>
       </div>
@@ -503,6 +510,27 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     const runBtn = $("#runBtn"), cancelBtn = $("#cancelBtn");
     let timer = null;
     function setRunning(on) { runBtn.disabled = on; cancelBtn.disabled = !on; $("#progress").style.display = on ? "block" : $("#progress").style.display; }
+    function showSaved(st) {
+      const note = $("#savedNote");
+      if (st.saved && st.saved.json) {
+        const dir = st.saved.json.replace(/[\\/][^\\/]*$/, "");
+        note.textContent = "Saved to " + dir + ": " + Object.keys(st.saved).map(k => st.saved[k].split(/[\\/]/).pop()).join(", ");
+        note.hidden = false;
+      } else if (st.output_dir) { note.textContent = "Finished scans are saved to " + st.output_dir; note.hidden = false; }
+    }
+    async function loadHistory() {
+      const h = await (await fetch("/api/history")).json();
+      const sel = $("#history");
+      sel.innerHTML = '<option value="">Choose…</option>' + (h.reports || []).map(r => `<option value="${esc(r.file)}">${esc(r.base_url)} · ${esc((r.generated_at || "").replace("T", " ").slice(0, 16))} · ${r.pages} pages · ${r.high} high</option>`).join("");
+      $("#historyWrap").hidden = !(h.reports && h.reports.length);
+    }
+    $("#history").addEventListener("change", async ev => {
+      if (!ev.target.value) return;
+      const res = await fetch("/api/open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({file: ev.target.value})});
+      if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
+      const r = await (await fetch("/api/report")).json(); setReport(r); showSaved(await (await fetch("/api/status")).json());
+      ev.target.value = "";
+    });
     async function poll() {
       const st = await (await fetch("/api/status")).json();
       $("#scanState").textContent = st.state;
@@ -515,7 +543,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
         timer = setTimeout(poll, 800);
       } else {
         setRunning(false);
-        if (st.state === "done") { $("#progressFill").style.width = "100%"; $("#progressText").textContent = "Finished"; const r = await (await fetch("/api/report")).json(); setReport(r); }
+        if (st.state === "done") { $("#progressFill").style.width = "100%"; $("#progressText").textContent = "Finished"; const r = await (await fetch("/api/report")).json(); setReport(r); showSaved(st); loadHistory(); }
         else if (st.state === "error") { $("#scanError").textContent = st.error || "Scan failed"; }
         if (st.log) { $("#log").textContent = st.log.join("\n"); }
       }
@@ -530,7 +558,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     });
     cancelBtn.addEventListener("click", () => fetch("/api/cancel", {method: "POST"}));
     updateCmd();
-    fetch("/api/report").then(r => r.ok ? r.json() : null).then(r => { if (r) setReport(r); else $("#report").hidden = true; }).then(poll);
+    fetch("/api/report").then(r => r.ok ? r.json() : null).then(r => { if (r) setReport(r); else $("#report").hidden = true; }).then(poll).then(loadHistory).then(async () => showSaved(await (await fetch("/api/status")).json()));
   } else {
     $("#scanHeading").textContent = "Run again with different parameters";
     $("#staticNote").hidden = false;
