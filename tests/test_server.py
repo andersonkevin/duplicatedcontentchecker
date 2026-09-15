@@ -14,10 +14,19 @@ from duplicatedcontentchecker.server import ScanRunner, config_from_payload, mak
 
 from .conftest import FakeFetcher
 
+TOKEN = "test-token"
+HEADERS = {"X-Dupcheck-Token": TOKEN}
+
+
+@pytest.fixture(autouse=True)
+def _isolated_token_file(tmp_path, monkeypatch):
+    """Never touch the real ~/.dupcheck/token from tests."""
+    monkeypatch.setenv("DUPCHECK_TOKEN_FILE", str(tmp_path / "token"))
+
 
 @pytest.fixture
 def server(simple_site):
-    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site))
+    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(runner))
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
@@ -29,15 +38,16 @@ def server(simple_site):
         httpd.server_close()
 
 
-def _get(url, raw=False):
-    with urllib.request.urlopen(url, timeout=5) as r:
+def _get(url, raw=False, headers=HEADERS):
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=5) as r:
         body = r.read()
         return (r.status, r.headers, body) if raw else json.loads(body)
 
 
 def _post(url, payload):
     req = urllib.request.Request(
-        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, method="POST"
+        url, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json", **HEADERS}, method="POST"
     )
     try:
         with urllib.request.urlopen(req, timeout=5) as r:
@@ -81,6 +91,7 @@ def test_dashboard_and_scan_lifecycle(server):
     status, headers, body = _get(base + "/", raw=True)
     assert status == 200 and "text/html" in headers["Content-Type"]
     assert b'<meta name="dupcheck-mode" content="live">' in body
+    assert f'<meta name="dupcheck-token" content="{TOKEN}">'.encode() in body
 
     assert _get(base + "/api/status")["state"] == "idle"
     with pytest.raises(urllib.error.HTTPError) as exc:
@@ -178,7 +189,7 @@ def test_loaded_report_serves_csv(simple_site, tmp_path):
         config=CrawlConfig("https://example.com", max_depth=3, threshold=0.7, min_words=20),
         fetcher=FakeFetcher(simple_site),
     ).run_report()
-    runner = ScanRunner()
+    runner = ScanRunner(token=TOKEN)
     runner.load(str(write_json(report, tmp_path / "r.json")))
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(runner))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -196,7 +207,7 @@ def test_loaded_report_serves_csv(simple_site, tmp_path):
 def test_scans_are_saved_and_listed(simple_site, tmp_path):
     """A finished scan writes JSON/CSV/HTML into output_dir; history lists it; open reloads it."""
     out = tmp_path / "reports"
-    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), output_dir=out)
+    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), output_dir=out, token=TOKEN)
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(runner))
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{httpd.server_address[1]}"
@@ -228,3 +239,36 @@ def test_scans_are_saved_and_listed(simple_site, tmp_path):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_api_requires_token_and_answers_cors_preflight(server):
+    """Pages opened from disk call the engine cross-origin; only the token opens the door."""
+    base, _ = server
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(base + "/api/status", headers={})
+    assert exc.value.code == 401
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        _get(base + "/api/status", headers={"X-Dupcheck-Token": "wrong"})
+    assert exc.value.code == 401
+    # Query-string token works for download links.
+    assert _get(base + "/api/status?token=" + TOKEN, headers={})["state"] == "idle"
+    # The dashboard page itself needs no token (it embeds one).
+    status, _, _ = _get(base + "/", raw=True, headers={})
+    assert status == 200
+
+    req = urllib.request.Request(base + "/api/scan", method="OPTIONS", headers={"Origin": "null"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        assert r.status == 204
+        assert r.headers["Access-Control-Allow-Origin"] == "null"
+        assert "X-Dupcheck-Token" in r.headers["Access-Control-Allow-Headers"]
+    status, headers, _ = _get(base + "/api/status", raw=True)
+    assert headers["Access-Control-Allow-Origin"] == "*"
+
+
+def test_get_or_create_token_is_stable(tmp_path, monkeypatch):
+    from duplicatedcontentchecker.engine_token import get_or_create_token, token_path
+
+    monkeypatch.setenv("DUPCHECK_TOKEN_FILE", str(tmp_path / "deep" / "token"))
+    first = get_or_create_token()
+    assert len(first) == 48 and token_path().read_text().strip() == first
+    assert get_or_create_token() == first

@@ -127,5 +127,8 @@ def test_actions_in_json_and_html(simple_site, tmp_path):
     assert "<title>Duplicate content · https://example.com</title>" in html
     assert '<meta name="dupcheck-mode" content="static">' in html
     assert f'<meta name="dupcheck-version" content="{__version__}">' in html
+    assert '<meta name="dupcheck-token" content="">' in html  # no token unless asked
+    out = write_html(report, tmp_path / "r2.html", token="abc")
+    assert '<meta name="dupcheck-token" content="abc">' in out.read_text(encoding="utf-8")
     assert "\\u003c" in html or "<" not in data["base_url"]  # embedded JSON never contains a raw "<"
     assert "https://example.com/blog/post-1-copy" in html

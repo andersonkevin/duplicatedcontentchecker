@@ -19,7 +19,9 @@ def build_serve_parser() -> argparse.ArgumentParser:
         description="Start a local dashboard where you can run scans with custom parameters.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    p.add_argument("--host", default="127.0.0.1", help="Interface to bind (keep it local; there is no auth)")
+    p.add_argument(
+        "--host", default="127.0.0.1", help="Interface to bind (keep it local; API calls need the per-machine token)"
+    )
     p.add_argument("--port", type=int, default=8765, help="Port to listen on (0 picks a free port)")
     p.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
     p.add_argument(
@@ -92,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
     out.add_argument("-o", "--output", default="duplicate_report.csv", metavar="CSV", help="CSV report path")
     out.add_argument("--json", metavar="PATH", help="Also write a JSON report with pages, stats and config")
     out.add_argument("--html", metavar="PATH", help="Also write a self-contained HTML dashboard with an action plan")
+    out.add_argument(
+        "--portable",
+        action="store_true",
+        help="Write the HTML without the local engine token (for sharing; it then cannot launch scans)",
+    )
     out.add_argument("--no-summary", action="store_true", help="Do not print the Markdown summary to stdout")
     out.add_argument(
         "--fail-on-duplicates", action="store_true", help="Exit with status 1 when any duplicate pair is found (for CI)"
@@ -168,7 +175,9 @@ def main(argv: list[str] | None = None, *, fetcher=None, serve_fn=None) -> int:
         write_json(report, args.json)
         logging.getLogger(__name__).info("JSON report written to %s", Path(args.json).resolve())
     if args.html:
-        write_html(report, args.html)
+        from .engine_token import get_or_create_token
+
+        write_html(report, args.html, token=None if args.portable else get_or_create_token())
         logging.getLogger(__name__).info("HTML dashboard written to %s", Path(args.html).resolve())
 
     if not args.no_summary:

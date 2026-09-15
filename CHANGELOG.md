@@ -24,8 +24,14 @@ All notable changes to this project are documented here. The format follows
   Bare `dupcheck` opens it. Every finished scan is saved as JSON, CSV and HTML
   under `--output-dir` (default `dupcheck-reports/`) and listed in the dashboard
   under "Previous scans" for reopening. `--load report.json` opens a saved report.
-- Static reports show the scan form prefilled with the report's parameters and
-  build the equivalent command to copy.
+- **Saved HTML reports are the app**: opened from disk, a report connects to
+  the local engine when it is running and can launch scans, show progress,
+  replace its results and save, all from that file. If the engine is down, the
+  page explains how to start it and builds the equivalent command.
+- Engine token: API calls require a per-machine secret stored in
+  `~/.dupcheck/token`; the engine embeds it in the pages it serves and in the
+  reports written locally. Prevents other websites from driving the crawler.
+  `--portable` writes a report without the token for sharing.
 - Crawler accepts a `should_stop` callback and exposes `queued_count` for progress.
 
 ## [2.0.0] - 2026-09-15

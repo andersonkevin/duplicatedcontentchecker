@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import secrets
 import threading
 import webbrowser
 from collections import deque
@@ -18,10 +19,11 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from .analyzer import analyze
 from .crawler import Crawler
+from .engine_token import get_or_create_token
 from .fetcher import Fetcher
 from .models import DEFAULT_USER_AGENT, CrawlConfig, Report
 from .report import csv_text, csv_text_from_pairs, render_html, to_dict, write_csv, write_html, write_json
@@ -92,10 +94,11 @@ def config_from_payload(payload: dict[str, Any]) -> CrawlConfig:
 class ScanRunner:
     """Owns one scan at a time and exposes its status."""
 
-    def __init__(self, fetcher_factory=None, output_dir: str | Path | None = None) -> None:
+    def __init__(self, fetcher_factory=None, output_dir: str | Path | None = None, token: str | None = None) -> None:
         self.s = ScanState()
         self._fetcher_factory = fetcher_factory  # tests inject a FakeFetcher
         self.output_dir = Path(output_dir) if output_dir else None
+        self.token = token or get_or_create_token()
 
     # -- saved reports ----------------------------------------------------
 
@@ -110,7 +113,7 @@ class ScanRunner:
         paths = {
             "json": write_json(s.report, self.output_dir / f"{stem}.json"),
             "csv": write_csv(s.report, self.output_dir / f"{stem}.csv"),
-            "html": write_html(s.report, self.output_dir / f"{stem}.html"),
+            "html": write_html(s.report, self.output_dir / f"{stem}.html", token=self.token),
         }
         log.info("Saved report to %s", paths["json"].parent / stem)
         return {k: str(v) for k, v in paths.items()}
@@ -237,15 +240,39 @@ def make_handler(runner: ScanRunner):
         def log_message(self, fmt, *args):  # quieter than the default
             log.debug("%s " + fmt, self.address_string(), *args)
 
+        def _cors(self) -> None:
+            # Saved HTML reports are opened from disk (origin "null") and call this
+            # server directly. CORS is open because the token is the actual gate.
+            self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin") or "*")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Dupcheck-Token")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Vary", "Origin")
+
         def _send(self, status: HTTPStatus, body: bytes, content_type: str, download: str | None = None) -> None:
             self.send_response(status)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self._cors()
             if download:
                 self.send_header("Content-Disposition", f'attachment; filename="{download}"')
             self.end_headers()
             self.wfile.write(body)
+
+        def _authorized(self) -> bool:
+            path, _, query = self.path.partition("?")
+            if not path.startswith("/api/"):
+                return True
+            supplied = self.headers.get("X-Dupcheck-Token")
+            if not supplied:
+                supplied = parse_qs(query).get("token", [""])[0]
+            return bool(supplied) and secrets.compare_digest(supplied, runner.token)
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self.send_response(HTTPStatus.NO_CONTENT)
+            self._cors()
+            self.send_header("Access-Control-Max-Age", "600")
+            self.end_headers()
 
         def _json(self, obj: Any, status: HTTPStatus = HTTPStatus.OK, download: str | None = None) -> None:
             body = json.dumps(obj, ensure_ascii=False, indent=2 if download else None).encode("utf-8")
@@ -254,8 +281,10 @@ def make_handler(runner: ScanRunner):
         def do_GET(self) -> None:  # noqa: N802
             path = self.path.split("?", 1)[0]
             s = runner.s
-            if path in ("/", "/index.html"):
-                html = render_html(None, live=True, title="dupcheck dashboard").encode("utf-8")
+            if not self._authorized():
+                self._json({"error": "Missing or invalid engine token"}, HTTPStatus.UNAUTHORIZED)
+            elif path in ("/", "/index.html"):
+                html = render_html(None, live=True, title="dupcheck dashboard", token=runner.token).encode("utf-8")
                 self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(runner.status())
@@ -286,7 +315,9 @@ def make_handler(runner: ScanRunner):
                 if s.report_dict is None:
                     self._json({"error": "No report yet"}, HTTPStatus.NOT_FOUND)
                 else:
-                    html = render_html(s.report_dict, title=f"Duplicate content · {s.report_dict['base_url']}")
+                    html = render_html(
+                        s.report_dict, title=f"Duplicate content · {s.report_dict['base_url']}", token=runner.token
+                    )
                     self._send(HTTPStatus.OK, html.encode("utf-8"), "text/html; charset=utf-8", "duplicate_report.html")
             else:
                 self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)
@@ -295,7 +326,9 @@ def make_handler(runner: ScanRunner):
             path = self.path.split("?", 1)[0]
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b""
-            if path == "/api/scan":
+            if not self._authorized():
+                self._json({"error": "Missing or invalid engine token"}, HTTPStatus.UNAUTHORIZED)
+            elif path == "/api/scan":
                 try:
                     payload = json.loads(raw or b"{}")
                     if not isinstance(payload, dict):
@@ -329,7 +362,7 @@ def serve(
     runner = runner or ScanRunner()
     httpd = ThreadingHTTPServer((host, port), make_handler(runner))
     url = f"http://{host}:{httpd.server_address[1]}/"
-    log.info("Dashboard at %s (Ctrl+C to stop)", url)
+    log.info("Dashboard at %s (Ctrl+C to stop). HTML reports written on this machine can also run scans here.", url)
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
