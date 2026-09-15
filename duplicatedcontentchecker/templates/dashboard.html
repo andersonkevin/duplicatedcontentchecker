@@ -6,6 +6,8 @@
 <title>Duplicate content report</title>
 <meta name="dupcheck-mode" content="static">
 <meta name="dupcheck-version" content="">
+<meta name="dupcheck-engine" content="">
+<meta name="dupcheck-token" content="">
 <style>
 :root {
   color-scheme: light;
@@ -115,9 +117,8 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   <section class="card section" id="scanPanel" hidden>
     <h2 id="scanHeading">New scan</h2>
     <div class="sub" id="staticNote" hidden style="margin:-6px 0 12px">
-      This file is a snapshot, so it cannot start a crawl by itself. To run scans with a Run button, open the live
-      dashboard with <code>dupcheck</code> (or <code>dupcheck serve --load report.json</code> to continue from this
-      report). Otherwise adjust the parameters below and copy the command for your terminal.
+      <span id="engineStatus">Looking for the local engine…</span>
+      <button class="btn" type="button" id="retryEngine" hidden style="margin-left:8px">Retry</button>
     </div>
     <form class="form" id="scanForm" autocomplete="off">
       <label class="full">Start URL <input type="url" name="url" required placeholder="https://example.com"></label>
@@ -264,7 +265,14 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const LIVE = (document.querySelector('meta[name="dupcheck-mode"]') || {}).content === "live";
-  const VERSION = (document.querySelector('meta[name="dupcheck-version"]') || {}).content || "";
+  const meta = n => (document.querySelector('meta[name="dupcheck-' + n + '"]') || {}).content || "";
+  const VERSION = meta("version"), ENGINE = meta("engine") || "http://127.0.0.1:8765", TOKEN = meta("token");
+  let API = LIVE ? "" : null;  // base URL of the engine once connected
+  function api(path, opts) {
+    opts = opts || {}; opts.headers = Object.assign({}, opts.headers || {}, TOKEN ? {"X-Dupcheck-Token": TOKEN} : {});
+    return fetch((API || "") + path, opts);
+  }
+  function apiUrl(path) { return (API || "") + path + (TOKEN ? (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN) : ""); }
   const PRI = {high: 0, medium: 1, low: 2};
   const tip = $("#tip");
 
@@ -426,7 +434,7 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
     $("#subtitle").innerHTML = `depth <code>${c.max_depth}</code> · max pages <code>${c.max_pages}</code> · threshold <code>${c.threshold}</code> · min words <code>${c.min_words}</code>${c.use_sitemap ? " · sitemap" : ""}${c.include_patterns.length ? ` · include <code>${esc(c.include_patterns.join(" | "))}</code>` : ""}${c.exclude_patterns.length ? ` · exclude <code>${esc(c.exclude_patterns.join(" | "))}</code>` : ""}`;
     $("#meta").textContent = "Generated " + new Date(report.generated_at).toLocaleString();
     $("#version").textContent = "v" + (report.version || VERSION);
-    if (LIVE) { $("#dlCsv").href = "/api/report.csv"; $("#dlJson").href = "/api/report.json"; }
+    if (API !== null && !report.__fromFile) { $("#dlCsv").href = apiUrl("/api/report.csv"); $("#dlJson").href = apiUrl("/api/report.json"); }
     else {
       $("#dlJson").href = URL.createObjectURL(new Blob([JSON.stringify(report, null, 2)], {type: "application/json"}));
       const csv = ["URL_1,URL_2,Similarity,Type,Note"].concat(report.pairs.map(p => [p.url_1, p.url_2, p.similarity.toFixed(4), p.type, (p.canonicalized ? "canonical points to the other page" : "") + (p.canonicalized && p.noindex ? "; " : "") + (p.noindex ? "at least one page is noindex" : "")].map(v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v).join(","))).join("\n");
@@ -502,68 +510,106 @@ footer { color: var(--muted); font-size: 12px; margin-top: 24px; }
   $("#copyMd").addEventListener("click", async () => { const md = markdownChecklist(); try { await navigator.clipboard.writeText(md); $("#copyMd").textContent = "Copied!"; } catch (e) { const ta = document.createElement("textarea"); ta.value = md; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); ta.remove(); $("#copyMd").textContent = "Copied!"; } setTimeout(() => $("#copyMd").textContent = "Copy as Markdown checklist", 1500); });
   document.addEventListener("scroll", hideTip, {passive: true});
 
-  // ---- live mode: scan form + polling ----
+  // ---- engine mode: scan form + polling (served page, or a file talking to the local engine) ----
   $("#scanPanel").hidden = false;
   $("#cmdWrap").hidden = false;
   if (VERSION) $("#version").textContent = "v" + VERSION;
+  const runBtn = $("#runBtn"), cancelBtn = $("#cancelBtn");
+  let engineEnabled = false, timer = null;
+
+  function setRunning(on) { runBtn.disabled = on; cancelBtn.disabled = !on; if (on) $("#progress").style.display = "block"; }
+  function showSaved(st) {
+    const note = $("#savedNote");
+    if (st.saved && st.saved.json) {
+      const dir = st.saved.json.replace(/[\\/][^\\/]*$/, "");
+      note.textContent = "Saved to " + dir + ": " + Object.keys(st.saved).map(k => st.saved[k].split(/[\\/]/).pop()).join(", ");
+      note.hidden = false;
+    } else if (st.output_dir) { note.textContent = "Finished scans are saved to " + st.output_dir; note.hidden = false; }
+  }
+  async function loadHistory() {
+    const h = await (await api("/api/history")).json();
+    const sel = $("#history");
+    sel.innerHTML = '<option value="">Choose…</option>' + (h.reports || []).map(r => `<option value="${esc(r.file)}">${esc(r.base_url)} · ${esc((r.generated_at || "").replace("T", " ").slice(0, 16))} · ${r.pages} pages · ${r.high} high</option>`).join("");
+    $("#historyWrap").hidden = !(h.reports && h.reports.length);
+  }
+  async function pullReport() { const r = await (await api("/api/report")).json(); setReport(r); }
+  async function poll(replaceOnDone) {
+    let st;
+    try { st = await (await api("/api/status")).json(); } catch (e) { engineLost(); return; }
+    $("#scanState").textContent = st.state;
+    if (st.state === "running") {
+      setRunning(true);
+      const pct = st.progress.max_pages ? Math.min(100, Math.round(100 * st.progress.fetched / st.progress.max_pages)) : 0;
+      $("#progressFill").style.width = pct + "%";
+      $("#progressText").textContent = `${st.progress.fetched} pages fetched · ${st.progress.queued} queued · ${st.progress.failed} failed · ${st.progress.phase}`;
+      $("#log").textContent = (st.log || []).join("\n"); $("#log").scrollTop = $("#log").scrollHeight;
+      timer = setTimeout(() => poll(true), 800);
+    } else {
+      setRunning(false);
+      if (st.state === "done" && replaceOnDone) { $("#progressFill").style.width = "100%"; $("#progressText").textContent = "Finished"; await pullReport(); showSaved(st); loadHistory(); }
+      else if (st.state === "error" && replaceOnDone) { $("#scanError").textContent = st.error || "Scan failed"; }
+      if (st.log && replaceOnDone) { $("#log").textContent = st.log.join("\n"); }
+    }
+  }
+  function engineLost() {
+    engineEnabled = false; API = LIVE ? "" : null;
+    $("#scanState").textContent = "";
+    $("#engineStatus").textContent = "Lost the connection to the local engine. Start it with `dupcheck` (keep it open), then retry.";
+    $("#staticNote").hidden = false; $("#retryEngine").hidden = false; runBtn.disabled = true; cancelBtn.disabled = true;
+  }
+  function enableEngine(base) {
+    API = base; engineEnabled = true;
+    $("#scanHeading").textContent = "New scan";
+    runBtn.hidden = false; cancelBtn.hidden = false; runBtn.disabled = false;
+    if (LIVE) { $("#staticNote").hidden = true; }
+    else { $("#engineStatus").textContent = "Connected to the local engine at " + base + ". Scans run and save from this page."; $("#retryEngine").hidden = true; $("#staticNote").hidden = false; }
+    loadHistory().catch(() => {});
+    api("/api/status").then(r => r.json()).then(showSaved).catch(() => {});
+  }
+  $("#history").addEventListener("change", async ev => {
+    if (!ev.target.value || !engineEnabled) return;
+    const res = await api("/api/open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({file: ev.target.value})});
+    if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
+    await pullReport(); showSaved(await (await api("/api/status")).json());
+    ev.target.value = "";
+  });
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault(); $("#scanError").textContent = "";
+    if (!engineEnabled) { $("#scanError").textContent = "The local engine is not running. Start it with `dupcheck` and retry."; return; }
+    const fd = new FormData(form), body = {};
+    fd.forEach((v, k) => body[k] = v); ["use_sitemap","include_subdomains","strip_query","full_page","ignore_robots"].forEach(k => body[k] = fd.get(k) === "on");
+    let res;
+    try { res = await api("/api/scan", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}); } catch (e) { engineLost(); return; }
+    if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
+    $("#progress").style.display = "block"; $("#progressFill").style.width = "0"; $("#log").textContent = ""; setRunning(true); poll(true);
+  });
+  cancelBtn.addEventListener("click", () => api("/api/cancel", {method: "POST"}));
+  $("#retryEngine").addEventListener("click", () => connectEngine());
+
+  async function connectEngine() {
+    $("#engineStatus").textContent = "Looking for the local engine…";
+    try {
+      const r = await fetch(ENGINE + "/api/status", {headers: TOKEN ? {"X-Dupcheck-Token": TOKEN} : {}});
+      if (r.status === 401) throw new Error("token");
+      if (!r.ok) throw new Error(r.statusText);
+      enableEngine(ENGINE); poll(false);
+    } catch (e) {
+      const why = e.message === "token" ? "This report was written on another machine, so it cannot use this engine. Generate it locally with dupcheck." : "The local engine is not running.";
+      $("#engineStatus").textContent = why + " Start it with `dupcheck` in a terminal (keep it open), then retry. Meanwhile the parameters below build a command you can run.";
+      $("#retryEngine").hidden = false; runBtn.hidden = false; runBtn.disabled = true; cancelBtn.hidden = true;
+    }
+  }
+
+  updateCmd();
   if (LIVE) {
-    const runBtn = $("#runBtn"), cancelBtn = $("#cancelBtn");
-    let timer = null;
-    function setRunning(on) { runBtn.disabled = on; cancelBtn.disabled = !on; $("#progress").style.display = on ? "block" : $("#progress").style.display; }
-    function showSaved(st) {
-      const note = $("#savedNote");
-      if (st.saved && st.saved.json) {
-        const dir = st.saved.json.replace(/[\\/][^\\/]*$/, "");
-        note.textContent = "Saved to " + dir + ": " + Object.keys(st.saved).map(k => st.saved[k].split(/[\\/]/).pop()).join(", ");
-        note.hidden = false;
-      } else if (st.output_dir) { note.textContent = "Finished scans are saved to " + st.output_dir; note.hidden = false; }
-    }
-    async function loadHistory() {
-      const h = await (await fetch("/api/history")).json();
-      const sel = $("#history");
-      sel.innerHTML = '<option value="">Choose…</option>' + (h.reports || []).map(r => `<option value="${esc(r.file)}">${esc(r.base_url)} · ${esc((r.generated_at || "").replace("T", " ").slice(0, 16))} · ${r.pages} pages · ${r.high} high</option>`).join("");
-      $("#historyWrap").hidden = !(h.reports && h.reports.length);
-    }
-    $("#history").addEventListener("change", async ev => {
-      if (!ev.target.value) return;
-      const res = await fetch("/api/open", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({file: ev.target.value})});
-      if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
-      const r = await (await fetch("/api/report")).json(); setReport(r); showSaved(await (await fetch("/api/status")).json());
-      ev.target.value = "";
-    });
-    async function poll() {
-      const st = await (await fetch("/api/status")).json();
-      $("#scanState").textContent = st.state;
-      if (st.state === "running") {
-        setRunning(true); $("#progress").style.display = "block";
-        const pct = st.progress.max_pages ? Math.min(100, Math.round(100 * st.progress.fetched / st.progress.max_pages)) : 0;
-        $("#progressFill").style.width = pct + "%";
-        $("#progressText").textContent = `${st.progress.fetched} pages fetched · ${st.progress.queued} queued · ${st.progress.failed} failed · ${st.progress.phase}`;
-        $("#log").textContent = (st.log || []).join("\n"); $("#log").scrollTop = $("#log").scrollHeight;
-        timer = setTimeout(poll, 800);
-      } else {
-        setRunning(false);
-        if (st.state === "done") { $("#progressFill").style.width = "100%"; $("#progressText").textContent = "Finished"; const r = await (await fetch("/api/report")).json(); setReport(r); showSaved(st); loadHistory(); }
-        else if (st.state === "error") { $("#scanError").textContent = st.error || "Scan failed"; }
-        if (st.log) { $("#log").textContent = st.log.join("\n"); }
-      }
-    }
-    form.addEventListener("submit", async ev => {
-      ev.preventDefault(); $("#scanError").textContent = "";
-      const fd = new FormData(form), body = {};
-      fd.forEach((v, k) => body[k] = v); ["use_sitemap","include_subdomains","strip_query","full_page","ignore_robots"].forEach(k => body[k] = fd.get(k) === "on");
-      const res = await fetch("/api/scan", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
-      if (!res.ok) { $("#scanError").textContent = (await res.json()).error || res.statusText; return; }
-      $("#progress").style.display = "block"; $("#progressFill").style.width = "0"; $("#log").textContent = ""; setRunning(true); poll();
-    });
-    cancelBtn.addEventListener("click", () => fetch("/api/cancel", {method: "POST"}));
-    updateCmd();
-    fetch("/api/report").then(r => r.ok ? r.json() : null).then(r => { if (r) setReport(r); else $("#report").hidden = true; }).then(poll).then(loadHistory).then(async () => showSaved(await (await fetch("/api/status")).json()));
+    enableEngine("");
+    api("/api/report").then(r => r.ok ? r.json() : null).then(r => { if (r) setReport(r); else $("#report").hidden = true; }).then(() => poll(true));
   } else {
     $("#scanHeading").textContent = "Run again with different parameters";
     $("#staticNote").hidden = false;
-    $("#runBtn").hidden = true; $("#cancelBtn").hidden = true;
-    setReport(JSON.parse($("#report-data").textContent));
+    const data = JSON.parse($("#report-data").textContent);
+    if (data) { data.__fromFile = true; setReport(data); } else { $("#report").hidden = true; }
+    connectEngine();
   }
 })();
 </script>
