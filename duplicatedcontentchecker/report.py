@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -116,14 +117,27 @@ def render_html(data: dict | None, *, live: bool = False, title: str = "Duplicat
 
     ``data`` is the dict from :func:`to_dict` (embedded for the static report)
     or ``None`` in live mode, where the page fetches it from the local server.
+    The template is valid HTML on its own; rendering only fills in the title,
+    the mode/version meta tags and the JSON data block.
     """
     template = resources.files("duplicatedcontentchecker.templates").joinpath("dashboard.html").read_text("utf-8")
-    return (
-        template.replace("__TITLE__", title)
-        .replace("__VERSION__", __version__)
-        .replace("__LIVE__", "true" if live else "false")
-        .replace("__DATA__", _json_for_html(data) if data is not None else "null")
+    payload = _json_for_html(data) if data is not None else "null"
+    substitutions = (
+        ("<title>Duplicate content report</title>", f"<title>{html.escape(title, quote=False)}</title>"),
+        (
+            '<meta name="dupcheck-mode" content="static">',
+            f'<meta name="dupcheck-mode" content="{"live" if live else "static"}">',
+        ),
+        ('<meta name="dupcheck-version" content="">', f'<meta name="dupcheck-version" content="{__version__}">'),
+        (
+            '<script id="report-data" type="application/json">null</script>',
+            f'<script id="report-data" type="application/json">{payload}</script>',
+        ),
     )
+    for marker, replacement in substitutions:
+        assert marker in template, f"dashboard template is missing {marker!r}"
+        template = template.replace(marker, replacement, 1)
+    return template
 
 
 def write_html(report: Report, path: str | Path) -> Path:
