@@ -19,13 +19,30 @@ from .models import Report
 CSV_COLUMNS = ("URL_1", "URL_2", "Similarity", "Type", "Note")
 
 
-def csv_text(report: Report) -> str:
+def _csv_rows(rows: list[tuple[str, str, float, str, str]]) -> str:
     buf = StringIO()
     writer = csv.writer(buf, lineterminator="\n")
     writer.writerow(CSV_COLUMNS)
-    for pair in report.pairs:
-        writer.writerow([pair.url_1, pair.url_2, f"{pair.similarity:.4f}", pair.kind, pair.note])
+    for url_1, url_2, similarity, kind, note in rows:
+        writer.writerow([url_1, url_2, f"{similarity:.4f}", kind, note])
     return buf.getvalue()
+
+
+def csv_text(report: Report) -> str:
+    return _csv_rows([(p.url_1, p.url_2, p.similarity, p.kind, p.note) for p in report.pairs])
+
+
+def csv_text_from_pairs(pairs: list[dict]) -> str:
+    """CSV from the ``pairs`` list of a JSON report (used when only the JSON was loaded)."""
+    rows = []
+    for p in pairs:
+        notes = []
+        if p.get("canonicalized"):
+            notes.append("canonical points to the other page")
+        if p.get("noindex"):
+            notes.append("at least one page is noindex")
+        rows.append((p["url_1"], p["url_2"], float(p["similarity"]), p.get("type", ""), "; ".join(notes)))
+    return _csv_rows(rows)
 
 
 def write_csv(report: Report, path: str | Path) -> Path:

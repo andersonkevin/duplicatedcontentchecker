@@ -10,13 +10,19 @@ copies and near-duplicates so you can consolidate, canonicalize or rewrite them.
 
 ```bash
 pip install git+https://github.com/andersonkevin/duplicatedcontentchecker.git
-dupcheck https://example.com --max-depth 3 --html report.html
+dupcheck
 ```
 
-Or open the interactive dashboard and run scans from the browser:
+`dupcheck` with no arguments opens the dashboard in your browser. Enter a URL,
+adjust the crawl parameters, press **Run scan**, and watch the results appear.
+Every finished scan is saved as JSON, CSV and HTML under `dupcheck-reports/`
+(change it with `--output-dir`), and the dashboard lists previous scans so you
+can reopen them. Everything runs locally.
+
+For scripts and CI, the same tool works as a plain command:
 
 ```bash
-dupcheck serve
+dupcheck https://example.com --max-depth 3 --html report.html
 ```
 
 ```text
@@ -61,9 +67,10 @@ dupcheck serve
 
 ## The dashboard
 
-`--html report.html` writes a single self-contained file you can open anywhere
-or send to a client. `dupcheck serve` hosts the same dashboard locally with a
-form to launch new scans.
+`dupcheck` (or `dupcheck serve`) hosts the dashboard locally with a form to
+launch scans and saves each result. `--html report.html` writes the same
+dashboard as a single self-contained snapshot you can open anywhere or send to
+a client; the snapshot cannot start a crawl by itself.
 
 - **At a glance**: high-priority count, pages crawled, exact and near pairs,
   clusters, thin pages; a similarity histogram and a pages-by-state chart.
@@ -73,10 +80,12 @@ form to launch new scans.
 - **Exports**: CSV, JSON, and a Markdown checklist copied to the clipboard.
 - **Clusters and pages**: every duplicate group with its primary, and the full
   crawled page list with word counts, canonical targets and noindex flags.
-- **Live mode** (`serve`): start URL, depth, page cap, threshold, min words,
-  delay, include/exclude patterns, sitemap seeding and more; watch progress and
-  the crawl log; cancel; download results. The server binds to 127.0.0.1 and has
-  no authentication, so keep it local.
+- **Live mode** (`dupcheck` / `dupcheck serve`): start URL, depth, page cap,
+  threshold, min words, delay, include/exclude patterns, sitemap seeding and
+  more; watch progress and the crawl log; cancel; download results. Finished
+  scans are saved automatically to the output directory and listed under
+  **Previous scans**. The server binds to 127.0.0.1 and has no authentication,
+  so keep it local.
 
 It respects `robots.txt`, sends a real User-Agent, times out, retries transient
 errors, skips non-HTML responses, and can wait between requests.
@@ -146,8 +155,8 @@ dupcheck https://example.com --sitemap --threshold 0.9 --max-pages 2000
 dupcheck https://example.com --exclude "/tag/" --exclude "/page/\d+"
 
 # Interactive dashboard on http://127.0.0.1:8765 (opens your browser)
-dupcheck serve
-dupcheck serve --port 9000 --no-open
+dupcheck
+dupcheck serve --port 9000 --no-open --output-dir ~/audits
 ```
 
 ## Python API
