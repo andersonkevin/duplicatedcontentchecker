@@ -8,19 +8,23 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import webbrowser
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from .analyzer import analyze
 from .crawler import Crawler
 from .fetcher import Fetcher
 from .models import DEFAULT_USER_AGENT, CrawlConfig, Report
-from .report import csv_text, render_html, to_dict
+from .report import csv_text, csv_text_from_pairs, render_html, to_dict, write_csv, write_html, write_json
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +48,7 @@ class ScanState:
     report: Report | None = None
     report_dict: dict | None = None
     phase: str = ""
+    saved: dict[str, str] = field(default_factory=dict)
     log: deque[str] = field(default_factory=lambda: deque(maxlen=200))
     cancel: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
@@ -87,9 +92,71 @@ def config_from_payload(payload: dict[str, Any]) -> CrawlConfig:
 class ScanRunner:
     """Owns one scan at a time and exposes its status."""
 
-    def __init__(self, fetcher_factory=None) -> None:
+    def __init__(self, fetcher_factory=None, output_dir: str | Path | None = None) -> None:
         self.s = ScanState()
         self._fetcher_factory = fetcher_factory  # tests inject a FakeFetcher
+        self.output_dir = Path(output_dir) if output_dir else None
+
+    # -- saved reports ----------------------------------------------------
+
+    def _save(self) -> dict[str, str]:
+        """Write JSON, CSV and HTML for the finished scan into output_dir."""
+        s = self.s
+        if self.output_dir is None or s.report is None:
+            return {}
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        host = re.sub(r"[^A-Za-z0-9.-]+", "-", urlsplit(s.report.base_url).hostname or "site").strip("-")
+        stem = f"{host}-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        paths = {
+            "json": write_json(s.report, self.output_dir / f"{stem}.json"),
+            "csv": write_csv(s.report, self.output_dir / f"{stem}.csv"),
+            "html": write_html(s.report, self.output_dir / f"{stem}.html"),
+        }
+        log.info("Saved report to %s", paths["json"].parent / stem)
+        return {k: str(v) for k, v in paths.items()}
+
+    def history(self) -> list[dict]:
+        """Saved reports in output_dir, newest first."""
+        if self.output_dir is None or not self.output_dir.is_dir():
+            return []
+        items = []
+        for path in sorted(self.output_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                with path.open(encoding="utf-8") as fh:
+                    data = json.load(fh)
+                summary = data.get("summary", {})
+                items.append(
+                    {
+                        "file": path.name,
+                        "base_url": data.get("base_url", ""),
+                        "generated_at": data.get("generated_at", ""),
+                        "pages": summary.get("pages_crawled", 0),
+                        "high": summary.get("actions", {}).get("high", 0),
+                        "pairs": summary.get("exact_duplicate_pairs", 0) + summary.get("near_duplicate_pairs", 0),
+                    }
+                )
+            except (OSError, ValueError):
+                continue
+        return items
+
+    def open_saved(self, name: str) -> None:
+        """Load a report from output_dir by file name (no paths, no traversal)."""
+        if self.output_dir is None or name != Path(name).name or not name.endswith(".json"):
+            raise ValueError("invalid report name")
+        if self.s.state == "running":
+            raise RuntimeError("A scan is already running")
+        self.load(str(self.output_dir / name))
+
+    def load(self, path: str) -> None:
+        """Preload a JSON report written by ``--json`` so it shows on first open."""
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict) or "pairs" not in data or "pages" not in data:
+            raise ValueError("not a dupcheck JSON report")
+        data.setdefault("actions", [])
+        data.setdefault("clusters", [])
+        self.s = ScanState(state="done", report_dict=data, phase="loaded", saved={"json": str(path)})
+        self.s.log.append(f"Loaded report for {data.get('base_url', '?')} from {path}")
 
     def status(self) -> dict:
         s = self.s
@@ -102,7 +169,14 @@ class ScanRunner:
             "max_pages": s.config.max_pages if s.config else 0,
             "phase": s.phase,
         }
-        return {"state": s.state, "error": s.error, "progress": progress, "log": list(s.log)}
+        return {
+            "state": s.state,
+            "error": s.error,
+            "progress": progress,
+            "log": list(s.log),
+            "saved": s.saved,
+            "output_dir": str(self.output_dir) if self.output_dir else None,
+        }
 
     def start(self, payload: dict[str, Any]) -> None:
         with self.s.lock:
@@ -143,6 +217,8 @@ class ScanRunner:
             )
             s.phase = "building report"
             s.report_dict = to_dict(s.report)
+            s.phase = "saving"
+            s.saved = self._save()
             s.phase = "canceled" if s.cancel.is_set() else "finished"
             s.state = "done"
         except Exception as exc:  # noqa: BLE001 - surfaced to the UI
@@ -183,6 +259,10 @@ def make_handler(runner: ScanRunner):
                 self._send(HTTPStatus.OK, html, "text/html; charset=utf-8")
             elif path == "/api/status":
                 self._json(runner.status())
+            elif path == "/api/history":
+                self._json(
+                    {"output_dir": str(runner.output_dir) if runner.output_dir else None, "reports": runner.history()}
+                )
             elif path == "/api/report":
                 if s.report_dict is None:
                     self._json({"error": "No report yet"}, HTTPStatus.NOT_FOUND)
@@ -194,11 +274,14 @@ def make_handler(runner: ScanRunner):
                 else:
                     self._json(s.report_dict, download="duplicate_report.json")
             elif path == "/api/report.csv":
-                if s.report is None:
-                    self._json({"error": "No report yet"}, HTTPStatus.NOT_FOUND)
-                else:
+                if s.report is not None:
                     body = csv_text(s.report).encode("utf-8")
-                    self._send(HTTPStatus.OK, body, "text/csv; charset=utf-8", "duplicate_report.csv")
+                elif s.report_dict is not None:
+                    body = csv_text_from_pairs(s.report_dict.get("pairs", [])).encode("utf-8")
+                else:
+                    self._json({"error": "No report yet"}, HTTPStatus.NOT_FOUND)
+                    return
+                self._send(HTTPStatus.OK, body, "text/csv; charset=utf-8", "duplicate_report.csv")
             elif path == "/api/report.html":
                 if s.report_dict is None:
                     self._json({"error": "No report yet"}, HTTPStatus.NOT_FOUND)
@@ -224,6 +307,14 @@ def make_handler(runner: ScanRunner):
                 self._json({"ok": True, "state": "running"}, HTTPStatus.ACCEPTED)
             elif path == "/api/cancel":
                 runner.cancel()
+                self._json({"ok": True})
+            elif path == "/api/open":
+                try:
+                    payload = json.loads(raw or b"{}")
+                    runner.open_saved(str(payload.get("file", "")))
+                except (ValueError, RuntimeError, OSError) as exc:
+                    self._json({"error": str(exc)}, HTTPStatus.BAD_REQUEST)
+                    return
                 self._json({"ok": True})
             else:
                 self._json({"error": "Not found"}, HTTPStatus.NOT_FOUND)

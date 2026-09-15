@@ -139,3 +139,92 @@ def test_cancel_stops_crawl(simple_site):
         CrawlConfig("https://example.com", max_depth=3), FakeFetcher(simple_site), should_stop=lambda: True
     )
     assert crawler.crawl() == [] and crawler.stopped_early is True
+
+
+def test_bare_dupcheck_opens_dashboard_and_load_preloads(simple_site, tmp_path):
+    """`dupcheck` with no arguments serves the dashboard; --load preloads a JSON report."""
+    from duplicatedcontentchecker import ContentDuplicateChecker, CrawlConfig
+    from duplicatedcontentchecker.cli import main
+    from duplicatedcontentchecker.report import write_json
+
+    calls = []
+
+    def fake_serve(host, port, *, open_browser, runner):
+        calls.append((host, port, open_browser, runner))
+
+    assert main([], serve_fn=fake_serve) == 0
+    assert calls[0][:3] == ("127.0.0.1", 8765, True)
+    assert calls[0][3].s.state == "idle"
+
+    report = ContentDuplicateChecker(
+        config=CrawlConfig("https://example.com", max_depth=3, threshold=0.7, min_words=20),
+        fetcher=FakeFetcher(simple_site),
+    ).run_report()
+    path = write_json(report, tmp_path / "r.json")
+    assert main(["serve", "--no-open", "--port", "0", "--load", str(path)], serve_fn=fake_serve) == 0
+    runner = calls[1][3]
+    assert runner.s.state == "done" and runner.s.report_dict["base_url"] == "https://example.com"
+    assert runner.s.report_dict["actions"]
+
+    with pytest.raises(SystemExit):
+        main(["serve", "--load", str(tmp_path / "missing.json")], serve_fn=fake_serve)
+
+
+def test_loaded_report_serves_csv(simple_site, tmp_path):
+    from duplicatedcontentchecker import ContentDuplicateChecker, CrawlConfig
+    from duplicatedcontentchecker.report import write_json
+
+    report = ContentDuplicateChecker(
+        config=CrawlConfig("https://example.com", max_depth=3, threshold=0.7, min_words=20),
+        fetcher=FakeFetcher(simple_site),
+    ).run_report()
+    runner = ScanRunner()
+    runner.load(str(write_json(report, tmp_path / "r.json")))
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(runner))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        assert _get(base + "/api/status")["state"] == "done"
+        assert _get(base + "/api/report")["summary"]["exact_duplicate_pairs"] == 1
+        _, _, body = _get(base + "/api/report.csv", raw=True)
+        assert b"exact" in body and body.startswith(b"URL_1,URL_2,Similarity,Type,Note")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_scans_are_saved_and_listed(simple_site, tmp_path):
+    """A finished scan writes JSON/CSV/HTML into output_dir; history lists it; open reloads it."""
+    out = tmp_path / "reports"
+    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), output_dir=out)
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(runner))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{httpd.server_address[1]}"
+    try:
+        assert _get(base + "/api/history") == {"output_dir": str(out), "reports": []}
+        _post(base + "/api/scan", {"url": "https://example.com", "max_depth": 3, "threshold": 0.7, "min_words": 20})
+        st = _wait_done(base)
+        assert st["state"] == "done" and st["output_dir"] == str(out)
+        assert sorted(st["saved"]) == ["csv", "html", "json"]
+        files = sorted(p.name for p in out.iterdir())
+        assert len(files) == 3 and all(f.startswith("example.com-") for f in files)
+        assert (
+            (out / [f for f in files if f.endswith(".html")][0])
+            .read_text(encoding="utf-8")
+            .startswith("<!doctype html>")
+        )
+
+        hist = _get(base + "/api/history")["reports"]
+        assert len(hist) == 1 and hist[0]["base_url"] == "https://example.com" and hist[0]["pages"] == 7
+
+        # Open the saved report by name; path traversal is refused.
+        runner.s = type(runner.s)()  # reset to idle
+        code, resp = _post(base + "/api/open", {"file": hist[0]["file"]})
+        assert code == 200 and _get(base + "/api/report")["summary"]["pages_crawled"] == 7
+        code, resp = _post(base + "/api/open", {"file": "../" + hist[0]["file"]})
+        assert code == 400
+        code, resp = _post(base + "/api/open", {"file": "nope.json"})
+        assert code == 400
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

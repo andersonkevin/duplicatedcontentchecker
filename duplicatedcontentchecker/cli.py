@@ -22,6 +22,13 @@ def build_serve_parser() -> argparse.ArgumentParser:
     p.add_argument("--host", default="127.0.0.1", help="Interface to bind (keep it local; there is no auth)")
     p.add_argument("--port", type=int, default=8765, help="Port to listen on (0 picks a free port)")
     p.add_argument("--no-open", action="store_true", help="Do not open the browser automatically")
+    p.add_argument(
+        "--output-dir",
+        default="dupcheck-reports",
+        metavar="DIR",
+        help="Where every finished scan is saved as JSON, CSV and HTML; previous scans are listed in the dashboard",
+    )
+    p.add_argument("--load", metavar="REPORT.json", help="Open this saved JSON report when the dashboard starts")
     p.add_argument("-q", "--quiet", action="store_true", help="Only log warnings and errors")
     p.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     return p
@@ -31,7 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="dupcheck",
         description="Crawl a website and report exact and near-duplicate pages.",
-        epilog="Run 'dupcheck serve' to open an interactive dashboard that can launch scans.",
+        epilog="Run 'dupcheck' with no arguments (or 'dupcheck serve') to open the interactive dashboard "
+        "and launch scans from the browser.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("url", help="Absolute URL to start crawling from, e.g. https://example.com")
@@ -114,23 +122,32 @@ def config_from_args(args: argparse.Namespace) -> CrawlConfig:
     )
 
 
-def serve_main(argv: list[str]) -> int:
-    args = build_serve_parser().parse_args(argv)
+def serve_main(argv: list[str], *, serve_fn=None) -> int:
+    parser = build_serve_parser()
+    args = parser.parse_args(argv)
     level = logging.DEBUG if args.verbose else logging.WARNING if args.quiet else logging.INFO
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr)
     for handler in logging.getLogger().handlers:
         handler.setLevel(level)  # the scan thread raises the package logger to INFO for the dashboard
-    from .server import serve  # local import keeps plain runs light
+    from .server import ScanRunner, serve  # local import keeps plain runs light
 
-    serve(args.host, args.port, open_browser=not args.no_open)
+    runner = ScanRunner(output_dir=args.output_dir)
+    if args.load:
+        try:
+            runner.load(args.load)
+        except (OSError, ValueError) as exc:
+            parser.error(f"could not load {args.load}: {exc}")
+    (serve_fn or serve)(args.host, args.port, open_browser=not args.no_open, runner=runner)
     return 0
 
 
-def main(argv: list[str] | None = None, *, fetcher=None) -> int:
+def main(argv: list[str] | None = None, *, fetcher=None, serve_fn=None) -> int:
     if argv is None:
         argv = sys.argv[1:]
-    if argv and argv[0] == "serve":
-        return serve_main(argv[1:])
+    if not argv:
+        return serve_main([], serve_fn=serve_fn)  # bare `dupcheck` opens the dashboard
+    if argv[0] == "serve":
+        return serve_main(argv[1:], serve_fn=serve_fn)
     parser = build_parser()
     args = parser.parse_args(argv)
 

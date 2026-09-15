@@ -21,6 +21,11 @@ All notable changes to this project are documented here. The format follows
 - **`dupcheck serve`**: a local server (standard library only, bound to
   127.0.0.1) that hosts the same dashboard with a form to launch new scans with
   custom parameters, live progress and log, cancel, and CSV/JSON/HTML downloads.
+  Bare `dupcheck` opens it. Every finished scan is saved as JSON, CSV and HTML
+  under `--output-dir` (default `dupcheck-reports/`) and listed in the dashboard
+  under "Previous scans" for reopening. `--load report.json` opens a saved report.
+- Static reports show the scan form prefilled with the report's parameters and
+  build the equivalent command to copy.
 - Crawler accepts a `should_stop` callback and exposes `queued_count` for progress.
 
 ## [2.0.0] - 2026-09-15
