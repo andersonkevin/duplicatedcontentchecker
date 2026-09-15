@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "duplicatedcontentchecker"
-version = "2.1.0"
+version = "2.2.0"
 description = "Crawl a website and report exact and near-duplicate pages for SEO audits."
 readme = "README.md"
 license = { file = "LICENSE" }

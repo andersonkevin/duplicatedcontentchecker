@@ -277,18 +277,18 @@ def test_get_or_create_token_is_stable(tmp_path, monkeypatch):
 def test_engine_refuses_private_hosts_unless_allowed(simple_site):
     runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN)
     for url in (
-        "http://localhost:8000/",
-        "http://127.0.0.1/",
-        "http://192.168.1.1/admin",
-        "http://10.0.0.5/",
-        "http://[::1]/",
-        "http://router.local/",
+        "https://localhost:8000/",
+        "https://127.0.0.1/",
+        "https://192.168.1.1/admin",
+        "https://10.0.0.5/",
+        "https://[::1]/",
+        "https://router.local/",
     ):
         with pytest.raises(ValueError, match="private host"):
             runner.start({"url": url})
         assert runner.s.state == "idle"
     permissive = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN, allow_private_hosts=True)
-    permissive.start({"url": "http://192.168.1.1/"})
+    permissive.start({"url": "https://192.168.1.1/"})
     assert permissive.s.state in ("running", "done")
 
 
@@ -300,3 +300,10 @@ def test_is_private_host():
     assert is_private_host("169.254.1.1") and is_private_host("printer.local") and is_private_host("")
     assert not is_private_host("8.8.8.8") and not is_private_host("2606:4700::1111")
     assert not is_private_host("this-name-does-not-resolve.invalid")
+
+
+def test_engine_refuses_http(simple_site):
+    runner = ScanRunner(fetcher_factory=lambda cfg: FakeFetcher(simple_site), token=TOKEN)
+    with pytest.raises(ValueError, match="https"):
+        runner.start({"url": "http://example.com"})
+    assert runner.s.state == "idle"
