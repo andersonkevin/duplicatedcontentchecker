@@ -28,7 +28,7 @@ Tests must not touch the network. Use the `FakeFetcher` and `page()` helpers in
 1. Create a branch with a descriptive name, for example `fix-canonical-detection`.
 2. Keep the public API stable: `ContentDuplicateChecker(base_url, max_depth).run()`
    and the first three CSV columns are relied on by existing users.
-3. Add or update tests for the behaviour you change.
+3. Add or update tests for the behavior you change.
 4. Run `pytest` and `ruff` before opening the pull request.
 5. Add a line under **Unreleased** in `CHANGELOG.md`.
 
@@ -43,6 +43,9 @@ Tests must not touch the network. Use the `FakeFetcher` and `page()` helpers in
 | `sitemap.py` | Sitemap discovery and parsing |
 | `crawler.py` | Breadth-first crawl loop |
 | `analyzer.py` | Exact and TF-IDF near-duplicate detection |
-| `report.py` | CSV, JSON and Markdown output |
+| `actions.py` | Duplicate clusters, primary selection and the action plan |
+| `report.py` | CSV, JSON, Markdown and HTML dashboard output |
+| `templates/dashboard.html` | The dashboard (vanilla JS, no build step); static and live modes |
+| `server.py` | `dupcheck serve`: local HTTP server that runs scans |
 | `checker.py` | Facade and v1-compatible API |
 | `cli.py` | `dupcheck` command |

@@ -174,3 +174,38 @@ def in_scope(url: str, include: tuple[str, ...], exclude: tuple[str, ...]) -> bo
     if exclude and matches_any(url, exclude):
         return False
     return True
+
+
+def is_private_host(hostname: str) -> bool:
+    """True for loopback, private, link-local or otherwise non-public targets.
+
+    Used by the local engine so that even a caller holding the engine token
+    cannot point the crawler at localhost or the LAN. Names are resolved and
+    every returned address is checked, which also covers DNS names that
+    resolve to private ranges.
+    """
+    import ipaddress
+    import socket
+
+    name = (hostname or "").strip().lower().rstrip(".")
+    if not name:
+        return True
+    if name in ("localhost",) or name.endswith((".localhost", ".local", ".internal", ".lan", ".home", ".corp")):
+        return True
+    try:
+        addresses = {ipaddress.ip_address(name)}
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(name, None)
+        except (socket.gaierror, UnicodeError):
+            return False  # unresolvable now; the fetch will simply fail
+        addresses = set()
+        for info in infos:
+            try:
+                addresses.add(ipaddress.ip_address(info[4][0]))
+            except ValueError:
+                continue
+    return any(
+        a.is_private or a.is_loopback or a.is_link_local or a.is_reserved or a.is_multicast or a.is_unspecified
+        for a in addresses
+    )

@@ -3,30 +3,56 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
+from importlib import resources
 from io import StringIO
 from pathlib import Path
 
 from . import __version__
+from .actions import recommend
 from .models import Report
 
 # The first three columns match v1 so existing spreadsheets keep working.
 CSV_COLUMNS = ("URL_1", "URL_2", "Similarity", "Type", "Note")
 
 
+def _csv_rows(rows: list[tuple[str, str, float, str, str]]) -> str:
+    buf = StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS)
+    for url_1, url_2, similarity, kind, note in rows:
+        writer.writerow([url_1, url_2, f"{similarity:.4f}", kind, note])
+    return buf.getvalue()
+
+
+def csv_text(report: Report) -> str:
+    return _csv_rows([(p.url_1, p.url_2, p.similarity, p.kind, p.note) for p in report.pairs])
+
+
+def csv_text_from_pairs(pairs: list[dict]) -> str:
+    """CSV from the ``pairs`` list of a JSON report (used when only the JSON was loaded)."""
+    rows = []
+    for p in pairs:
+        notes = []
+        if p.get("canonicalized"):
+            notes.append("canonical points to the other page")
+        if p.get("noindex"):
+            notes.append("at least one page is noindex")
+        rows.append((p["url_1"], p["url_2"], float(p["similarity"]), p.get("type", ""), "; ".join(notes)))
+    return _csv_rows(rows)
+
+
 def write_csv(report: Report, path: str | Path) -> Path:
     path = Path(path)
-    with path.open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(CSV_COLUMNS)
-        for pair in report.pairs:
-            writer.writerow([pair.url_1, pair.url_2, f"{pair.similarity:.4f}", pair.kind, pair.note])
+    path.write_text(csv_text(report), encoding="utf-8", newline="")
     return path
 
 
 def to_dict(report: Report) -> dict:
+    actions, clusters = recommend(report)
     return {
         "tool": "duplicatedcontentchecker",
         "version": __version__,
@@ -40,7 +66,24 @@ def to_dict(report: Report) -> dict:
             "thin_pages": len(report.thin_pages),
             "exact_duplicate_pairs": len(report.exact_pairs),
             "near_duplicate_pairs": len(report.near_pairs),
+            "clusters": len(clusters),
+            "actions": {
+                "high": sum(1 for a in actions if a.priority == "high"),
+                "medium": sum(1 for a in actions if a.priority == "medium"),
+                "low": sum(1 for a in actions if a.priority == "low"),
+            },
         },
+        "actions": [a.to_dict() for a in actions],
+        "clusters": [
+            {
+                "id": c.id,
+                "primary": c.primary,
+                "members": c.members,
+                "kind": c.kind,
+                "min_similarity": c.min_similarity,
+            }
+            for c in clusters
+        ],
         "pairs": [
             {
                 "url_1": p.url_1,
@@ -73,6 +116,71 @@ def to_dict(report: Report) -> dict:
 def write_json(report: Report, path: str | Path) -> Path:
     path = Path(path)
     path.write_text(json.dumps(to_dict(report), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return path
+
+
+def _json_for_html(data: dict) -> str:
+    """Serialize for a <script type=application/json> block without closing it early."""
+    return (
+        json.dumps(data, ensure_ascii=False)
+        .replace("<", "\\u003c")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+DEFAULT_ENGINE_URL = "http://127.0.0.1:8765"
+
+
+def render_html(
+    data: dict | None,
+    *,
+    live: bool = False,
+    title: str = "Duplicate content report",
+    token: str | None = None,
+    engine_url: str = DEFAULT_ENGINE_URL,
+) -> str:
+    """Render the dashboard template.
+
+    ``data`` is the dict from :func:`to_dict` (embedded for the static report)
+    or ``None`` in live mode, where the page fetches it from the local server.
+    The template is valid HTML on its own; rendering only fills in the title,
+    the meta tags (mode, version, engine URL, token) and the JSON data block.
+    ``token`` lets a report opened from disk call the local engine; omit it for
+    a report you will share outside this machine.
+    """
+    template = resources.files("duplicatedcontentchecker.templates").joinpath("dashboard.html").read_text("utf-8")
+    payload = _json_for_html(data) if data is not None else "null"
+    substitutions = (
+        ("<title>Duplicate content report</title>", f"<title>{html.escape(title, quote=False)}</title>"),
+        (
+            '<meta name="dupcheck-mode" content="static">',
+            f'<meta name="dupcheck-mode" content="{"live" if live else "static"}">',
+        ),
+        ('<meta name="dupcheck-version" content="">', f'<meta name="dupcheck-version" content="{__version__}">'),
+        (
+            '<meta name="dupcheck-engine" content="">',
+            f'<meta name="dupcheck-engine" content="{html.escape(engine_url)}">',
+        ),
+        (
+            '<meta name="dupcheck-token" content="">',
+            f'<meta name="dupcheck-token" content="{html.escape(token or "")}">',
+        ),
+        (
+            '<script id="report-data" type="application/json">null</script>',
+            f'<script id="report-data" type="application/json">{payload}</script>',
+        ),
+    )
+    for marker, replacement in substitutions:
+        assert marker in template, f"dashboard template is missing {marker!r}"
+        template = template.replace(marker, replacement, 1)
+    return template
+
+
+def write_html(report: Report, path: str | Path, *, token: str | None = None) -> Path:
+    path = Path(path)
+    html_text = render_html(to_dict(report), title=f"Duplicate content · {report.base_url}", token=token)
+    path.write_text(html_text, encoding="utf-8")
     return path
 
 

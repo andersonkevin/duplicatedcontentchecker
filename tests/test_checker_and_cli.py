@@ -84,3 +84,28 @@ def test_cli_rejects_bad_threshold(tmp_path):
     with pytest.raises(SystemExit) as exc:
         main(["https://example.com", "-t", "2", "-o", str(tmp_path / "r.csv")], fetcher=FakeFetcher({}))
     assert exc.value.code == 2
+
+
+def test_cli_html_embeds_token_unless_portable(simple_site, tmp_path, monkeypatch):
+    monkeypatch.setenv("DUPCHECK_TOKEN_FILE", str(tmp_path / "token"))
+    html_path = tmp_path / "r.html"
+    main(
+        ["https://example.com", "-o", str(tmp_path / "r.csv"), "--html", str(html_path), "-q", "--no-summary"],
+        fetcher=FakeFetcher(simple_site),
+    )
+    token = (tmp_path / "token").read_text().strip()
+    assert f'content="{token}"' in html_path.read_text(encoding="utf-8")
+    main(
+        [
+            "https://example.com",
+            "-o",
+            str(tmp_path / "r.csv"),
+            "--html",
+            str(html_path),
+            "--portable",
+            "-q",
+            "--no-summary",
+        ],
+        fetcher=FakeFetcher(simple_site),
+    )
+    assert '<meta name="dupcheck-token" content="">' in html_path.read_text(encoding="utf-8")
