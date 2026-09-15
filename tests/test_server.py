@@ -80,7 +80,7 @@ def test_dashboard_and_scan_lifecycle(server):
     base, _ = server
     status, headers, body = _get(base + "/", raw=True)
     assert status == 200 and "text/html" in headers["Content-Type"]
-    assert b"const LIVE = true" in body and b"__DATA__" not in body
+    assert b'<meta name="dupcheck-mode" content="live">' in body
 
     assert _get(base + "/api/status")["state"] == "idle"
     with pytest.raises(urllib.error.HTTPError) as exc:
@@ -104,7 +104,7 @@ def test_dashboard_and_scan_lifecycle(server):
     status, headers, body = _get(base + "/api/report.csv", raw=True)
     assert body.startswith(b"URL_1,URL_2,Similarity,Type,Note") and "attachment" in headers["Content-Disposition"]
     status, headers, body = _get(base + "/api/report.html", raw=True)
-    assert b"const LIVE = false" in body and b"https://example.com/blog/post-1-copy" in body
+    assert b'content="static"' in body and b"https://example.com/blog/post-1-copy" in body
     status, headers, body = _get(base + "/api/report.json", raw=True)
     assert json.loads(body)["base_url"] == "https://example.com"
 
